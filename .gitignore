@@ -1,0 +1,31 @@
+# Python-generated files and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+.hypothesis/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Local secrets (keep an explicit example file trackable)
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# User uploads, temporary workspaces, and generated reports
+uploads/
+data/uploads/
+tmp/
+temp/
+reports/generated/
+
+# Reproducible local demo artifacts
+demo/visiondoctor_demo.zip

@@ -1,0 +1,67 @@
+"""Tests for exact and perceptual duplicate grouping."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from vision_doctor.checkers.duplicates import find_duplicate_groups
+from vision_doctor.config import DuplicateDetectionConfig
+from vision_doctor.parser import parse_yolo_dataset
+
+
+def _write_dataset(root: Path) -> None:
+    (root / "images").mkdir()
+    (root / "labels").mkdir()
+    (root / "data.yaml").write_text("names: [object]\n", encoding="utf-8")
+    random = np.random.default_rng(42)
+    base = random.integers(0, 256, size=(128, 128, 3), dtype=np.uint8)
+    Image.fromarray(base).save(root / "images/a.png")
+    shutil.copyfile(root / "images/a.png", root / "images/b.png")
+    near = base.copy()
+    near[0, 0, 0] = (int(near[0, 0, 0]) + 1) % 256
+    Image.fromarray(near).save(root / "images/c.png")
+    unrelated = np.random.default_rng(7).integers(
+        0, 256, size=(128, 128, 3), dtype=np.uint8
+    )
+    Image.fromarray(unrelated).save(root / "images/d.png")
+
+
+def test_exact_and_near_duplicates_are_distinct_and_deterministic(
+    tmp_path: Path,
+) -> None:
+    _write_dataset(tmp_path)
+    manifest = parse_yolo_dataset(tmp_path)
+
+    groups = find_duplicate_groups(manifest, tmp_path)
+    exact = [group for group in groups if group.kind == "exact"]
+    near = [group for group in groups if group.kind == "near"]
+
+    assert len(exact) == 1
+    assert exact[0].image_ids == ["images/a.png", "images/b.png"]
+    assert exact[0].representative_image_id == "images/a.png"
+    assert exact[0].hamming_distance == 0
+    assert len(near) == 1
+    assert near[0].image_ids == ["images/a.png", "images/c.png"]
+    assert near[0].representative_image_id == "images/a.png"
+    assert near[0].hamming_distance <= 4
+    assert "images/d.png" not in exact[0].image_ids + near[0].image_ids
+    assert len(near[0].pair_distances) == 1
+    assert groups == find_duplicate_groups(manifest, tmp_path)
+
+
+def test_pairwise_limit_is_explicit(tmp_path: Path) -> None:
+    _write_dataset(tmp_path)
+    manifest = parse_yolo_dataset(tmp_path)
+
+    config = DuplicateDetectionConfig(max_images_for_pairwise=3)
+
+    try:
+        find_duplicate_groups(manifest, tmp_path, config=config)
+    except ValueError as error:
+        assert "at most 3 images" in str(error)
+    else:
+        raise AssertionError("Expected configured pairwise size limit to be enforced")
