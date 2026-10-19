@@ -190,7 +190,7 @@ Health Score 是启发式数据风险指标，不是模型精度预测、真实�
 - 图片预览遇到损坏文件或 ZIP 内不唯一的后缀匹配时会安全拒绝显示。
 - 没有用户系统、数据库、自动修标、训练、重新训练或 Multi-Agent。
 - 浏览器文件选择、下载对话框和最终视觉排版仍需要人工验收。
-- 尚未执行外部部署；真实 DeepSeek API 也尚未成功验证为 `generated_by=llm`。
+- 公共 Streamlit Demo 已部署；云端默认不配置 Key，因此使用 deterministic fallback。真实 DeepSeek API 仅在本地 opt-in 验证中成功返回过 `generated_by=llm`，不代表服务可用性或输出质量保证。
 
 ## 可扩展方向
 
