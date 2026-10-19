@@ -11,7 +11,7 @@ VisionDoctor 是一个面向 YOLO Detection 数据集的“体检与修复决策
 ### 2.1 输入
 
 - 单个 ZIP 压缩包。
-- 压缩包内容为 YOLO Detection 数据集：必需的 `data.yaml`、`train/images`、`train/labels`、`val/images`、`val/labels`，以及可选的同构 `test` split。
+- 压缩包内容为 YOLO Detection 数据集：必需的唯一 `data.yaml` 和至少一个可解析的训练图片目录；支持 split-first、images-first 和 flat 布局，`val`/`test` 可选，标签目录缺失时按缺失标签继续分析。
 - ZIP 可以直接以数据集内容为根或包含一个数据集外层目录；唯一的 `data.yaml` 决定数据集根，其他普通文件类型可以存在并被忽略。
 - 标签行采用 `class_id x_center y_center width height`，坐标为归一化数值。
 - MVP 只接受受支持的图片扩展名和普通文件；具体白名单与资源上限须在实现阶段集中配置并测试。
@@ -31,7 +31,7 @@ VisionDoctor 是一个面向 YOLO Detection 数据集的“体检与修复决策
 MVP 必须形成一条可演示的端到端链路：
 
 1. 安全接收并解压 ZIP。
-2. 识别唯一数据集根，解析 split-first YOLO Detection 图片、标签和必需的 `data.yaml`。
+2. 识别唯一数据集根，安全解析 `data.yaml` 的类名与相对本地 split 路径，并对缺失路径执行无歧义的 split-first、images-first 或 flat 布局发现。
 3. 检测标注异常，包括但不限于：缺失/空标签、孤立标签、字段数错误、非数值、非法类别、越界或非正尺寸框。
 4. 检测图片质量问题，包括但不限于：无法解码、尺寸过小、模糊、过暗或过亮；阈值必须可解释且可配置。
 5. 检测完全重复或近重复图片，并提供证据与分组。

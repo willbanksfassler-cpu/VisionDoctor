@@ -816,3 +816,46 @@
 - AI Doctor & Report 在线运行模式为 deterministic fallback，risk 为 High，assessment、priority findings、action plan、caveats 以及 JSON/HTML 下载控件均非空。真实 DeepSeek API 已在本地 opt-in 验证中成功取得 `generated_by=llm` 并通过 Diagnosis 校验，但未把本机 Key 上传到 Streamlit Cloud。
 - 浏览器自动化的下载保存事件在本次复验中超时，因此没有把新的自动下载文件记为通过证据；此前用户已人工确认两个报告下载及 JSON 校验成功。本次代码级报告 round-trip 和 HTML 生成仍由 97 项全量测试覆盖。
 - `.env`、API Key、`.venv`、上传数据和 `demo/visiondoctor_demo.zip` 均未进入提交；没有执行 force push，也没有部署数据库。
+
+## 22. 多布局 YOLO Parser 兼容更新（2026-10-19）
+
+### 22.1 实时基线与问题定位
+
+- 开始修改前重新读取了 README、MVP 契约、实施状态、忽略规则、环境变量示例、依赖、archive/parser/pipeline/models、annotation checker、上传 UI、Demo 生成脚本及相关测试；从当前目录向上未发现适用的 `AGENTS.md`。
+- Git 基线为 `main`，`origin` 指向 `https://github.com/willbanksfassler-cpu/VisionDoctor.git`，工作区开始时干净，最新 commit 为 `eacbd0e Record split-first deployment verification`。
+- 基线聚焦测试通过：36 passed in 7.76s；Python 为 3.11.7。
+- 旧提示 `Dataset root must contain both images/ and labels/ directories.` 不存在于修改前的当前源码，判断为旧部署或旧版本消息；`Dataset split 'train' must contain both images/ and labels/ directories.` 来自修改前当前 Parser。通用 UI 提示来自 `safe_error_message` 对非预期异常的脱敏兜底。
+- 修改前 Parser 固定读取 split-first 的 `train` 和 `val`，不使用 YAML 的 `path/train/val/test`，并把缺少 `labels/` 视为数据集级结构错误。这是常见 ZIP 上传失败的直接原因。
+
+### 22.2 实际修改
+
+- Parser 现在优先解析 `data.yaml` 中安全的相对本地 `path`、`train`、`val`、`test` 目录，并支持：`train/images` + `train/labels`、`images/train` + `labels/train`、同级 `images` + `labels` 三类布局；`val` 和 `test` 可选。
+- `data.yaml` 的 `names` 必需；`nc` 可选但存在时必须为正整数且与 `names` 数量一致。YAML 解析、字段类型、目录存在性和路径安全错误均返回可读的 `DatasetParseError`。
+- YAML 路径拒绝 URL、绝对路径、Windows 盘符/UNC 路径和越过数据集根的路径；多个真实 `data.yaml` 或多个可自动识别布局会被明确拒绝，避免猜测错误数据根。`__MACOSX` 中的元数据 YAML 不参与数据根判定。
+- ZIP 根和数据集根可包含 README、许可证、`.DS_Store` 等其他普通文件。唯一真实 `data.yaml` 可以位于一个外层目录中。
+- split 缺少 `labels/` 时继续解析图片，并由 annotation checker 产生逐图 `LABEL_MISSING`；损坏标签仍保留为行级解析错误。空的可选 `val`/`test` 占位目录被忽略，空的训练目录会返回明确错误。
+- UI 上传说明、split 筛选、README、MVP 契约和 Demo 说明已同步；Demo YAML 现在显式声明 `path`、三个 split、`nc` 和 `names`。本轮没有扩展 COCO、分割、姿态、训练、数据库、Multi-Agent 或 LLM 能力，也没有调用真实付费 API。
+
+### 22.3 测试与启动证据
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 首次新增聚焦测试 | 39 passed、4 failed；失败暴露既有 annotation fixtures 中的空 `val` 占位目录，随后按“空的可选 split 忽略”规则修复。 |
+| `python -m pytest -q tests/test_parser.py tests/test_annotation_checker.py tests/test_pipeline.py tests/test_ui_smoke.py` | 通过：43 passed in 6.53s。 |
+| `python scripts/generate_demo_dataset.py` | 通过；重新生成被 Git 忽略的 `demo/visiondoctor_demo.zip`。 |
+| `python scripts/smoke_test.py` | 通过：15 张图片、14 个 Issue、12 种预期 Issue code、exact/near 重复组、Health Score 61.93/D、schema `1.0.0`。 |
+| `python -m pytest -q tests/test_archive.py tests/test_parser.py tests/test_annotation_checker.py tests/test_pipeline.py tests/test_ui_smoke.py` | 通过：54 passed in 8.30s。 |
+| `python -m pytest -q` | 通过：115 passed in 41.69s；0 failed。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过。 |
+| `git diff --check` | 通过，退出码 0；仅有 LF→CRLF 提示。 |
+| 沙箱内 Streamlit 探测 | 进程启动后回环探测被 Windows 套接字权限拒绝，未记作成功。 |
+| 放行回环端口后的 Streamlit 启动 | 通过：8508 端口返回 HTTP 200 且响应含 Streamlit 标识，随后停止精确对应的临时 Python 进程。 |
+
+新增/更新测试覆盖 train-only、可选 val/test、split-first、images-first、flat、YAML 混合路径、相对 `path`、缺失 labels、`nc` 一致性、字段类型、缺失目录、不安全路径、`__MACOSX`、歧义布局、Pipeline ZIP 集成、UI split 推断和可读错误透传。
+
+### 22.4 当前状态与下一步
+
+- 本地实现与必需质量门禁已完成，当前阶段在外部发布前为 **In progress**。
+- 下一步必须先审计 staged 内容，确认 `.env`、`.venv`、`.streamlit/secrets.toml`、上传数据和 `demo/visiondoctor_demo.zip` 未进入提交，再提交并推送 `main`。
+- 推送后需要等待或触发 Streamlit Community Cloud 拉取最新 commit，并用重新生成的 Demo ZIP 进行线上 deterministic fallback 验收。只有线上页面实际显示新结构说明、分析成功且下载/安全检查通过后，本节才能更新为 **Complete**。

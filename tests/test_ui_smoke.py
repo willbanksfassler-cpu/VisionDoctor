@@ -9,6 +9,7 @@ import app
 from scripts.generate_demo_dataset import generate_demo_zip
 from vision_doctor.config import Settings
 from vision_doctor.models import AuditReport
+from vision_doctor.parser import DatasetParseError
 from vision_doctor.ui.dashboard import TAB_LABELS
 from vision_doctor.ui.issue_explorer import (
     class_ids_for_issue,
@@ -43,6 +44,10 @@ def test_streamlit_entry_imports_with_exactly_four_tab_contract() -> None:
         "Issue Explorer",
         "AI Doctor & Report",
     ]
+    assert split_for_path("train/images/a.jpg") == "train"
+    assert split_for_path("images/val/a.jpg") == "val"
+    assert split_for_path("images/a.jpg") == "all"
+    assert split_for_path("README.md") == "unknown"
 
 
 def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> None:
@@ -125,3 +130,12 @@ def test_ui_error_text_does_not_expose_unexpected_exception_details() -> None:
 
     assert secret not in message
     assert "stack" not in message.lower()
+
+
+def test_ui_preserves_actionable_parser_error_without_generic_masking() -> None:
+    message = safe_error_message(
+        DatasetParseError("data.yaml is missing required field 'names'.")
+    )
+
+    assert message == "data.yaml is missing required field 'names'."
+    assert "Analysis could not be completed" not in message

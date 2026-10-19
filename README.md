@@ -39,12 +39,14 @@ flowchart LR
 
 ## 支持的数据集结构
 
+Split-first（`train` 必需，`val`/`test` 可选）：
+
 ```text
 dataset/
 ├── train/
 │   ├── images/
 │   └── labels/
-├── val/
+├── val/                  # 可选
 │   ├── images/
 │   └── labels/
 ├── test/                 # 可选
@@ -53,9 +55,26 @@ dataset/
 └── data.yaml
 ```
 
-`train` 和 `val` 必须存在；`test` 可选。ZIP 可以直接以数据集内容为根，也可以有一个外层目录（例如 `dataset/`）。系统通过唯一的 `data.yaml` 定位数据集根，允许 ZIP 根和数据集根包含 README、许可证等其他普通文件；多个 `data.yaml` 会因无法安全确定目标数据集而被拒绝。图片和标签在同一 split 内按相对于各自 `images/`、`labels/` 的路径和 stem 配对。
+Images-first：
 
-图片格式支持 JPG、JPEG、PNG、BMP 和 WEBP；标签行为 `class_id x_center y_center width height`。旧式 `images/train`、`labels/train` 布局不再属于支持范围。不支持 COCO、分割、姿态或训练流程。
+```text
+dataset/
+├── images/
+│   ├── train/
+│   ├── val/              # 可选
+│   └── test/             # 可选
+├── labels/
+│   ├── train/
+│   ├── val/              # 可选
+│   └── test/             # 可选
+└── data.yaml
+```
+
+Flat 小数据集也可使用同级 `images/`、`labels/` 和 `data.yaml`。ZIP 可以直接以数据集内容为根，也可以有一个外层目录（例如 `dataset/`）。系统通过唯一的 `data.yaml` 定位数据集根，允许 ZIP 根和数据集根包含 README、许可证、`.DS_Store` 等其他普通文件，并忽略 `__MACOSX` 中的元数据 YAML；多个真实 `data.yaml` 会因无法安全确定目标数据集而被拒绝。
+
+`data.yaml` 的 `names` 必需，支持列表或从 0 开始的连续整数键字典；`nc` 可省略，存在时必须与 `names` 数量一致。`path`、`train`、`val`、`test` 支持数据集根内的相对本地目录；URL、绝对路径、UNC/盘符路径和越界路径会被拒绝。显式 split 路径优先，未配置时才进行 split-first、images-first、flat 三种布局的无歧义自动识别。缺少 `labels/` 不会阻断图片分析，而会产生逐图 `LABEL_MISSING` 供人工确认。图片和标签在同一 split 内按相对路径和 stem 配对。
+
+图片格式支持 JPG、JPEG、PNG、BMP 和 WEBP；标签行为 `class_id x_center y_center width height`。不支持 COCO、分割、姿态或训练流程。
 
 ## 安装
 
@@ -184,7 +203,7 @@ Health Score 是启发式数据风险指标，不是模型精度预测、真实�
 
 ## 已知限制
 
-- 仅支持约定的 YOLO Detection 目录结构；不支持 COCO、分割和姿态。
+- 仅支持文档列出的 YOLO Detection 目录结构和安全的本地目录型 YAML split 路径；不支持图片清单 TXT、远程 URL、COCO、分割和姿态。
 - pHash 近重复采用简单两两比较，默认最多处理 2,000 张图片，规模增大时复杂度约为 O(n²)。
 - HTML 报告不嵌入原图，Issue 很多时文件大小线性增长；报告渲染需要额外内存。
 - 图片预览遇到损坏文件或 ZIP 内不唯一的后缀匹配时会安全拒绝显示。

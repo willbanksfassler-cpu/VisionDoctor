@@ -20,9 +20,14 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def prepare_dataset(root: Path, yaml_content: str = "names: [cat]\n") -> None:
+def prepare_dataset(
+    root: Path,
+    yaml_content: str = "names: [cat]\n",
+    *,
+    splits: tuple[str, ...] = ("train",),
+) -> None:
     write_text(root / "data.yaml", yaml_content)
-    for split in ("train", "val"):
+    for split in splits:
         (root / split / "images").mkdir(parents=True)
         (root / split / "labels").mkdir(parents=True)
 
@@ -52,7 +57,11 @@ def test_wrapper_root_extras_test_split_and_names_mapping_are_supported(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "dataset"
-    prepare_dataset(dataset, "names:\n  0: cat\n  1: dog\n")
+    prepare_dataset(
+        dataset,
+        "names:\n  0: cat\n  1: dog\n",
+        splits=("train", "val"),
+    )
     (dataset / "test" / "images").mkdir(parents=True)
     (dataset / "test" / "labels").mkdir(parents=True)
     write_text(tmp_path / "packaging-note.md", "ignored\n")
@@ -219,21 +228,29 @@ def test_missing_or_invalid_data_yaml_has_clear_error(tmp_path: Path) -> None:
         parse_yolo_dataset(tmp_path)
 
 
-def test_legacy_images_first_layout_is_rejected(tmp_path: Path) -> None:
+def test_images_first_layout_is_supported(tmp_path: Path) -> None:
     write_text(tmp_path / "data.yaml", "names: [cat]\n")
     write_image(tmp_path / "images" / "train" / "a.png")
     write_text(tmp_path / "labels" / "train" / "a.txt", "0 0.5 0.5 0.2 0.2\n")
 
-    with pytest.raises(DatasetParseError, match="split 'train'"):
-        parse_yolo_dataset(tmp_path)
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert [image.relative_path for image in manifest.images] == [
+        "images/train/a.png"
+    ]
+    assert manifest.images[0].label_path == "labels/train/a.txt"
 
 
-def test_optional_test_split_must_be_complete(tmp_path: Path) -> None:
+def test_unconfigured_optional_placeholder_directory_is_ignored(tmp_path: Path) -> None:
     prepare_dataset(tmp_path)
     (tmp_path / "test").mkdir()
+    write_image(tmp_path / "train" / "images" / "a.png")
 
-    with pytest.raises(DatasetParseError, match="split 'test'"):
-        parse_yolo_dataset(tmp_path)
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert [image.relative_path for image in manifest.images] == [
+        "train/images/a.png"
+    ]
 
 
 def test_multiple_nested_data_yaml_files_are_rejected(tmp_path: Path) -> None:
@@ -241,4 +258,154 @@ def test_multiple_nested_data_yaml_files_are_rejected(tmp_path: Path) -> None:
     prepare_dataset(tmp_path / "two")
 
     with pytest.raises(DatasetParseError, match="multiple data.yaml"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_train_only_split_first_layout_is_supported(tmp_path: Path) -> None:
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "only.jpg")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert manifest.summary.image_count == 1
+    assert manifest.images[0].relative_path == "train/images/only.jpg"
+    assert manifest.images[0].label_status == "missing"
+
+
+def test_missing_labels_directory_becomes_missing_label_state(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "names: [cat]\n")
+    write_image(tmp_path / "train" / "images" / "unlabelled.jpg")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert manifest.summary.label_file_count == 0
+    assert manifest.images[0].label_status == "missing"
+    assert manifest.images[0].label_path is None
+
+
+def test_flat_layout_is_supported_as_all_split(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "names: [cat]\n")
+    write_image(tmp_path / "images" / "flat.png")
+    write_text(tmp_path / "labels" / "flat.txt", "0 0.5 0.5 0.2 0.2\n")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert manifest.images[0].relative_path == "images/flat.png"
+    assert manifest.images[0].label_path == "labels/flat.txt"
+
+
+def test_yaml_paths_and_optional_splits_are_resolved(tmp_path: Path) -> None:
+    write_text(
+        tmp_path / "data.yaml",
+        "path: .\n"
+        "train: train/images\n"
+        "val: images/val\n"
+        "test: test\n"
+        "nc: 2\n"
+        "names: [cat, dog]\n",
+    )
+    write_image(tmp_path / "train" / "images" / "a.png")
+    write_text(tmp_path / "train" / "labels" / "a.txt", "0 0.5 0.5 0.2 0.2\n")
+    write_image(tmp_path / "images" / "val" / "b.png")
+    write_text(tmp_path / "labels" / "val" / "b.txt", "1 0.5 0.5 0.2 0.2\n")
+    write_image(tmp_path / "test" / "images" / "c.png")
+    write_text(tmp_path / "test" / "labels" / "c.txt", "0 0.5 0.5 0.2 0.2\n")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert [image.relative_path for image in manifest.images] == [
+        "train/images/a.png",
+        "images/val/b.png",
+        "test/images/c.png",
+    ]
+    assert [image.label_path for image in manifest.images] == [
+        "train/labels/a.txt",
+        "labels/val/b.txt",
+        "test/labels/c.txt",
+    ]
+
+
+def test_yaml_relative_path_base_is_supported(tmp_path: Path) -> None:
+    write_text(
+        tmp_path / "data.yaml",
+        "path: content\ntrain: train/images\nnames: [cat]\n",
+    )
+    write_image(tmp_path / "content" / "train" / "images" / "a.png")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert manifest.images[0].relative_path == "content/train/images/a.png"
+
+
+@pytest.mark.parametrize(
+    "yaml_content",
+    [
+        "path: ../outside\ntrain: train/images\nnames: [cat]\n",
+        "train: C:/outside/images\nnames: [cat]\n",
+        "train: https://example.com/images\nnames: [cat]\n",
+        "train: //server/share/images\nnames: [cat]\n",
+    ],
+)
+def test_unsafe_yaml_paths_are_rejected(
+    tmp_path: Path, yaml_content: str
+) -> None:
+    write_text(tmp_path / "data.yaml", yaml_content)
+
+    with pytest.raises(DatasetParseError, match="safe relative|outside"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_yaml_path_type_and_missing_directory_are_rejected(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "train: [train/images]\nnames: [cat]\n")
+    with pytest.raises(DatasetParseError, match="non-empty relative directory"):
+        parse_yolo_dataset(tmp_path)
+
+    write_text(tmp_path / "data.yaml", "train: missing/images\nnames: [cat]\n")
+    with pytest.raises(DatasetParseError, match="does not exist"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_nc_is_optional_but_must_match_names_when_present(tmp_path: Path) -> None:
+    prepare_dataset(tmp_path, "nc: 2\nnames: [cat]\n")
+
+    with pytest.raises(DatasetParseError, match="nc.*2.*names.*1"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_missing_names_has_clear_error(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "train: train/images\n")
+
+    with pytest.raises(DatasetParseError, match="missing required field 'names'"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_macos_metadata_data_yaml_is_ignored(tmp_path: Path) -> None:
+    dataset = tmp_path / "wrapped"
+    prepare_dataset(dataset)
+    write_image(dataset / "train" / "images" / "a.png")
+    write_text(tmp_path / "__MACOSX" / "data.yaml", "not: the dataset\n")
+    write_text(tmp_path / ".DS_Store", "ignored\n")
+
+    manifest = parse_yolo_dataset(tmp_path)
+
+    assert manifest.images[0].relative_path == "train/images/a.png"
+
+
+def test_ambiguous_autodetected_layouts_are_rejected(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "names: [cat]\n")
+    write_image(tmp_path / "train" / "images" / "a.png")
+    write_image(tmp_path / "images" / "train" / "b.png")
+
+    with pytest.raises(DatasetParseError, match="ambiguous"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_configured_split_without_supported_images_is_rejected(tmp_path: Path) -> None:
+    write_text(
+        tmp_path / "data.yaml",
+        "train: train/images\nnames: [cat]\n",
+    )
+    (tmp_path / "train" / "images").mkdir(parents=True)
+
+    with pytest.raises(DatasetParseError, match="No supported images"):
         parse_yolo_dataset(tmp_path)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import zipfile
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from scripts.generate_demo_dataset import generate_demo_zip
 from vision_doctor.config import Settings
@@ -84,3 +86,28 @@ def test_pipeline_can_attach_no_key_fallback_diagnosis(tmp_path: Path) -> None:
 
     assert report.diagnosis is not None
     assert report.diagnosis.generated_by == "deterministic"
+
+
+def test_pipeline_accepts_images_first_layout_with_optional_val(
+    tmp_path: Path,
+) -> None:
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (32, 32), color=(20, 40, 60)).save(
+        image_buffer, format="PNG"
+    )
+    archive = tmp_path / "images-first.zip"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr(
+            "dataset/data.yaml",
+            "train: images/train\nnc: 1\nnames: [cat]\n",
+        )
+        output.writestr("dataset/images/train/a.png", image_buffer.getvalue())
+        output.writestr(
+            "dataset/labels/train/a.txt",
+            "0 0.5 0.5 0.2 0.2\n",
+        )
+
+    report = run_pipeline(archive, temp_root=tmp_path)
+
+    assert report.manifest.summary.image_count == 1
+    assert report.manifest.images[0].relative_path == "images/train/a.png"

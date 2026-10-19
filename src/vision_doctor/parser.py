@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import math
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from PIL import Image, UnidentifiedImageError
@@ -26,6 +28,15 @@ class DatasetParseError(ValueError):
     """Raised when a dataset-level structure cannot be parsed safely."""
 
 
+@dataclass(frozen=True)
+class _SplitDirectories:
+    """Resolved, dataset-contained directories for one logical split."""
+
+    name: str
+    images: Path
+    labels: Path | None
+
+
 def _relative_path(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -40,7 +51,9 @@ def _load_class_names(data_yaml: Path) -> tuple[dict[int, str], dict[str, Any]]:
 
     if not isinstance(document, dict):
         raise DatasetParseError("data.yaml must contain a YAML mapping at its root.")
-    names = document.get("names")
+    if "names" not in document:
+        raise DatasetParseError("data.yaml is missing required field 'names'.")
+    names = document["names"]
     if isinstance(names, list):
         if not names or any(not isinstance(name, str) or not name.strip() for name in names):
             raise DatasetParseError("data.yaml names list must contain non-empty strings.")
@@ -68,6 +81,16 @@ def _load_class_names(data_yaml: Path) -> tuple[dict[int, str], dict[str, Any]]:
         raise DatasetParseError(
             "data.yaml must define names as a list or integer-key mapping."
         )
+
+    nc = document.get("nc")
+    if nc is not None:
+        if isinstance(nc, bool) or not isinstance(nc, int) or nc <= 0:
+            raise DatasetParseError("data.yaml field 'nc' must be a positive integer.")
+        if nc != len(class_names):
+            raise DatasetParseError(
+                f"data.yaml field 'nc' is {nc} but names defines "
+                f"{len(class_names)} classes."
+            )
     return class_names, document
 
 
@@ -327,10 +350,14 @@ def resolve_yolo_dataset_root(dataset_root: str | Path) -> Path:
     root = Path(dataset_root).resolve()
     if not root.is_dir():
         raise DatasetParseError("Dataset root does not exist or is not a directory.")
-    direct = root / "data.yaml"
-    if direct.is_file():
-        return root
-    candidates = sorted(path for path in root.rglob("data.yaml") if path.is_file())
+    candidates = sorted(
+        path
+        for path in root.rglob("data.yaml")
+        if path.is_file()
+        and "__macosx" not in {
+            part.casefold() for part in path.relative_to(root).parts
+        }
+    )
     if not candidates:
         raise DatasetParseError(
             "Dataset archive must contain data.yaml exactly once at its dataset root."
@@ -346,22 +373,167 @@ def resolve_yolo_dataset_root(dataset_root: str | Path) -> Path:
     return candidates[0].parent.resolve()
 
 
-def _discover_split_files(
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _resolve_yaml_directory(
+    root: Path,
+    base: Path,
+    field: str,
+    value: object,
+) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise DatasetParseError(
+            f"data.yaml field {field!r} must be a non-empty relative directory path."
+        )
+    raw_value = value.strip()
+    parsed = urlsplit(raw_value)
+    windows_path = PureWindowsPath(raw_value)
+    if (
+        parsed.scheme
+        or raw_value.startswith(("/", "\\", "//"))
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+    ):
+        raise DatasetParseError(
+            f"data.yaml field {field!r} must use a safe relative local path."
+        )
+    normalized = raw_value.replace("\\", "/")
+    resolved = (base / Path(normalized)).resolve()
+    if not _is_within(resolved, root):
+        raise DatasetParseError(
+            f"Configured path for data.yaml field {field!r} points outside the "
+            "extracted dataset root and was rejected."
+        )
+    if not resolved.is_dir():
+        raise DatasetParseError(
+            f"Configured directory for data.yaml field {field!r} does not exist: "
+            f"{normalized}."
+        )
+    return resolved
+
+
+def _split_from_image_directory(
     root: Path,
     split: str,
-    image_suffixes: frozenset[str],
-) -> tuple[dict[str, Path], dict[str, Path]]:
-    split_root = root / split
-    images_directory = split_root / "images"
-    labels_directory = split_root / "labels"
-    if not images_directory.is_dir() or not labels_directory.is_dir():
-        raise DatasetParseError(
-            f"Dataset split {split!r} must contain both images/ and labels/ directories."
-        )
-    return (
-        _discover_by_key(images_directory, image_suffixes),
-        _discover_by_key(labels_directory, frozenset({".txt"})),
+    configured_directory: Path,
+) -> _SplitDirectories:
+    images_directory = configured_directory
+    if (configured_directory / "images").is_dir():
+        images_directory = configured_directory / "images"
+
+    relative_parts = list(images_directory.relative_to(root).parts)
+    image_markers = [
+        index for index, part in enumerate(relative_parts) if part.casefold() == "images"
+    ]
+    labels_directory: Path | None = None
+    if image_markers:
+        label_parts = list(relative_parts)
+        label_parts[image_markers[-1]] = "labels"
+        candidate = root.joinpath(*label_parts)
+        if candidate.is_dir():
+            labels_directory = candidate
+    return _SplitDirectories(split, images_directory, labels_directory)
+
+
+def _autodetected_layouts(root: Path) -> list[list[_SplitDirectories]]:
+    layouts: list[list[_SplitDirectories]] = []
+
+    split_first_train = root / "train" / "images"
+    if split_first_train.is_dir():
+        split_first: list[_SplitDirectories] = []
+        for split in ("train", "val", "test"):
+            images = root / split / "images"
+            if images.is_dir():
+                labels = root / split / "labels"
+                split_first.append(
+                    _SplitDirectories(split, images, labels if labels.is_dir() else None)
+                )
+        layouts.append(split_first)
+
+    images_first_train = root / "images" / "train"
+    if images_first_train.is_dir():
+        images_first: list[_SplitDirectories] = []
+        for split in ("train", "val", "test"):
+            images = root / "images" / split
+            if images.is_dir():
+                labels = root / "labels" / split
+                images_first.append(
+                    _SplitDirectories(split, images, labels if labels.is_dir() else None)
+                )
+        layouts.append(images_first)
+
+    flat_images = root / "images"
+    has_named_image_splits = any(
+        (flat_images / split).is_dir() for split in ("train", "val", "test")
     )
+    if flat_images.is_dir() and not has_named_image_splits:
+        flat_labels = root / "labels"
+        layouts.append(
+            [
+                _SplitDirectories(
+                    "all",
+                    flat_images,
+                    flat_labels if flat_labels.is_dir() else None,
+                )
+            ]
+        )
+    return layouts
+
+
+def _resolve_split_directories(
+    root: Path,
+    document: dict[str, Any],
+) -> list[_SplitDirectories]:
+    base = root
+    if "path" in document:
+        base = _resolve_yaml_directory(root, root, "path", document["path"])
+
+    configured: list[_SplitDirectories] = []
+    for split in ("train", "val", "test"):
+        if split not in document:
+            continue
+        directory = _resolve_yaml_directory(root, base, split, document[split])
+        configured.append(_split_from_image_directory(root, split, directory))
+
+    if configured:
+        if not any(item.name == "train" for item in configured):
+            layouts = _autodetected_layouts(base)
+            if len(layouts) == 1:
+                train = next(
+                    (item for item in layouts[0] if item.name == "train"), None
+                )
+                if train is not None:
+                    configured.insert(0, train)
+            if not any(item.name == "train" for item in configured):
+                raise DatasetParseError(
+                    "data.yaml is missing field 'train' and no unique train image "
+                    "directory could be detected."
+                )
+        resolved_directories = [item.images.resolve() for item in configured]
+        if len(set(resolved_directories)) != len(resolved_directories):
+            raise DatasetParseError(
+                "data.yaml maps multiple splits to the same image directory."
+            )
+        return configured
+
+    layouts = _autodetected_layouts(base)
+    if not layouts:
+        raise DatasetParseError(
+            "No supported YOLO layout could be determined. Checked split-first, "
+            "images-first, and flat layouts."
+        )
+    if len(layouts) > 1:
+        raise DatasetParseError(
+            "Multiple supported YOLO layouts were found; dataset structure is "
+            "ambiguous. Configure explicit train/val/test paths in data.yaml."
+        )
+    return layouts[0]
 
 
 def parse_yolo_dataset(
@@ -370,34 +542,42 @@ def parse_yolo_dataset(
     source_archive: str | None = None,
     upload_limits: UploadLimits | None = None,
 ) -> DatasetManifest:
-    """Parse canonical split-first YOLO Detection directories into a manifest."""
+    """Parse a safe, unambiguous YOLO Detection layout into a manifest."""
 
     root = resolve_yolo_dataset_root(dataset_root)
     data_yaml = root / "data.yaml"
     class_names, yaml_document = _load_class_names(data_yaml)
     active_limits = upload_limits or UploadLimits()
-    splits = ["train", "val"]
-    if (root / "test").exists():
-        splits.append("test")
+    split_directories = _resolve_split_directories(root, yaml_document)
 
     image_paths: dict[str, Path] = {}
     label_paths: dict[str, Path] = {}
-    for split in splits:
-        split_images, split_labels = _discover_split_files(
-            root,
-            split,
+    for split in split_directories:
+        split_images = _discover_by_key(
+            split.images,
             active_limits.allowed_image_extensions,
         )
+        if not split_images:
+            if split.name in {"val", "test"}:
+                continue
+            relative_directory = _relative_path(split.images, root)
+            raise DatasetParseError(
+                f"No supported images were found in the resolved {split.name} "
+                f"directory {relative_directory!r}."
+            )
+        split_labels = (
+            _discover_by_key(split.labels, frozenset({".txt"}))
+            if split.labels is not None
+            else {}
+        )
         image_paths.update(
-            {f"{split}/{key}": path for key, path in split_images.items()}
+            {f"{split.name}/{key}": path for key, path in split_images.items()}
         )
         label_paths.update(
-            {f"{split}/{key}": path for key, path in split_labels.items()}
+            {f"{split.name}/{key}": path for key, path in split_labels.items()}
         )
     if not image_paths:
-        raise DatasetParseError(
-            "Dataset train/ and val/ image directories contain no supported images."
-        )
+        raise DatasetParseError("Dataset contains no supported images.")
 
     annotations: list[AnnotationRecord] = []
     parse_errors: list[ParseErrorRecord] = []

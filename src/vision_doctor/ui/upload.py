@@ -118,9 +118,11 @@ def render_upload(settings: Settings) -> None:
 
     st.subheader("Upload a YOLO Detection dataset")
     st.markdown(
-        "Expected: `data.yaml` plus `train/images`, `train/labels`, "
-        "`val/images`, and `val/labels`; `test` is optional. A single enclosing "
-        "dataset folder and unrelated regular files are allowed."
+        "Expected: one `data.yaml` plus a supported YOLO Detection layout. "
+        "`train/images` + `train/labels`, `images/train` + `labels/train`, "
+        "and flat `images` + `labels` are supported; `val` and `test` are "
+        "optional. Missing label directories are reported as missing labels. "
+        "A single enclosing dataset folder and unrelated regular files are allowed."
     )
     st.info(
         "Uploads are processed only in a random temporary directory for this session. "

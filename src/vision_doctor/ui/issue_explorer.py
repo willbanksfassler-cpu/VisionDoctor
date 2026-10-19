@@ -22,7 +22,10 @@ def split_for_path(relative_path: str | None) -> str:
     for part in parts:
         if part in _KNOWN_SPLITS:
             return "val" if part in {"valid", "validation"} else part
-    return "root"
+    parts_set = set(parts)
+    if parts_set & {"images", "labels"}:
+        return "all"
+    return "unknown"
 
 
 def image_for_issue(report: AuditReport, issue: Issue) -> ImageRecord | None:
