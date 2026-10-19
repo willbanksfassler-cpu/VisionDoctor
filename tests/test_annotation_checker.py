@@ -33,8 +33,15 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def build_issue_fixture(root: Path) -> None:
+def prepare_dataset(root: Path) -> None:
     write_text(root / "data.yaml", "names: [cat]\n")
+    for split in ("train", "val"):
+        (root / split / "images").mkdir(parents=True)
+        (root / split / "labels").mkdir(parents=True)
+
+
+def build_issue_fixture(root: Path) -> None:
+    prepare_dataset(root)
     cases = {
         "empty": "  \n",
         "parse": "0 0.5 0.5 0.2\n",
@@ -45,11 +52,14 @@ def build_issue_fixture(root: Path) -> None:
         "tiny": "0 0.5 0.5 0.005 0.005\n",
         "normal": "0 0.5 0.5 0.2 0.2\n",
     }
-    write_image(root / "images" / "missing.jpg")
+    write_image(root / "train" / "images" / "missing.jpg")
     for stem, label in cases.items():
-        write_image(root / "images" / f"{stem}.jpg")
-        write_text(root / "labels" / f"{stem}.txt", label)
-    write_text(root / "labels" / "orphan.txt", "0 0.5 0.5 0.2 0.2\n")
+        write_image(root / "train" / "images" / f"{stem}.jpg")
+        write_text(root / "train" / "labels" / f"{stem}.txt", label)
+    write_text(
+        root / "train" / "labels" / "orphan.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
 
 
 def test_every_required_issue_code_has_positive_evidence(tmp_path: Path) -> None:
@@ -75,7 +85,7 @@ def test_every_required_issue_code_has_positive_evidence(tmp_path: Path) -> None
     assert by_code[LABEL_PARSE_ERROR].annotation_line == 1
     assert by_code[BBOX_OUT_OF_RANGE].bbox == (1.2, 0.5, 0.2, 0.2)
     assert by_code[BBOX_TINY].metrics["width_pixels"] == 0.5
-    assert by_code[LABEL_ORPHAN].relative_path == "labels/orphan.txt"
+    assert by_code[LABEL_ORPHAN].relative_path == "train/labels/orphan.txt"
     assert all(issue.issue_id.startswith("annotation-") for issue in issues)
     assert all(issue.relative_path for issue in issues)
     assert all(issue.suggested_action for issue in issues)
@@ -93,9 +103,12 @@ def test_every_required_issue_code_has_positive_evidence(tmp_path: Path) -> None
 
 
 def test_normal_label_has_no_false_positive(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "normal.jpg")
-    write_text(tmp_path / "labels" / "normal.txt", "0 0.5 0.5 0.2 0.2\n")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "normal.jpg")
+    write_text(
+        tmp_path / "train" / "labels" / "normal.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
 
     issues = check_annotations(parse_yolo_dataset(tmp_path))
 
@@ -103,11 +116,14 @@ def test_normal_label_has_no_false_positive(tmp_path: Path) -> None:
 
 
 def test_damaged_label_does_not_block_other_images(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "bad.jpg")
-    write_image(tmp_path / "images" / "tiny.jpg")
-    write_text(tmp_path / "labels" / "bad.txt", "not a yolo row\n")
-    write_text(tmp_path / "labels" / "tiny.txt", "0 0.5 0.5 0.001 0.001\n")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "bad.jpg")
+    write_image(tmp_path / "train" / "images" / "tiny.jpg")
+    write_text(tmp_path / "train" / "labels" / "bad.txt", "not a yolo row\n")
+    write_text(
+        tmp_path / "train" / "labels" / "tiny.txt",
+        "0 0.5 0.5 0.001 0.001\n",
+    )
 
     issues = check_annotations(parse_yolo_dataset(tmp_path))
 
@@ -117,9 +133,12 @@ def test_damaged_label_does_not_block_other_images(tmp_path: Path) -> None:
 def test_issue_ids_are_stable_and_tiny_thresholds_are_configurable(
     tmp_path: Path,
 ) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "object.jpg")
-    write_text(tmp_path / "labels" / "object.txt", "0 0.5 0.5 0.05 0.05\n")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "object.jpg")
+    write_text(
+        tmp_path / "train" / "labels" / "object.txt",
+        "0 0.5 0.5 0.05 0.05\n",
+    )
     manifest = parse_yolo_dataset(tmp_path)
 
     default_issues = check_annotations(manifest)

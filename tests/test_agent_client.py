@@ -105,6 +105,7 @@ def test_valid_llm_json_is_accepted_and_prompt_is_minimized(tmp_path: Path) -> N
         "representative_evidence",
     }
     assert len(evidence["representative_evidence"]) <= 5
+    assert all("issue_id" in item for item in evidence["representative_evidence"])
     assert "images" not in evidence
     assert "annotations" not in evidence
     assert "raw_line" not in str(evidence)
@@ -275,7 +276,7 @@ def test_deepseek_adapter_sends_chat_json_request_to_fake_sdk() -> None:
     ]
     assert request["response_format"] == {"type": "json_object"}
     assert request["stream"] is False
-    assert request["max_tokens"] == 1_500
+    assert request["max_tokens"] == 4_000
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
 
 

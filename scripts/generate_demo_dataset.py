@@ -32,7 +32,9 @@ def _random_image(rng: np.random.Generator, size: int = 400) -> np.ndarray:
 def _demo_members() -> dict[str, bytes]:
     rng = np.random.default_rng(SEED)
     members: dict[str, bytes] = {
-        "data.yaml": b"name: visiondoctor-demo\nnames: [common, rare, unused]\n"
+        "dataset/data.yaml": b"name: visiondoctor-demo\nnames: [common, rare, unused]\n",
+        "dataset/README.txt": b"Synthetic VisionDoctor demo dataset.\n",
+        "packaging-note.md": b"Extra ZIP-root files are intentionally ignored.\n",
     }
     images: dict[str, np.ndarray] = {
         "normal": _random_image(rng),
@@ -51,9 +53,12 @@ def _demo_members() -> dict[str, bytes]:
     near = exact.copy()
     near[0, 0, 0] = (int(near[0, 0, 0]) + 1) % 256
     images.update({"exact_a": exact, "exact_b": exact.copy(), "near": near})
+    val_stems = {"bright", "low_resolution"}
+    test_stems = {"near"}
     for stem, pixels in images.items():
-        members[f"images/{stem}.png"] = _png_bytes(pixels)
-    members["images/damaged.png"] = b"deterministic damaged image bytes"
+        split = "test" if stem in test_stems else "val" if stem in val_stems else "train"
+        members[f"dataset/{split}/images/{stem}.png"] = _png_bytes(pixels)
+    members["dataset/train/images/damaged.png"] = b"deterministic damaged image bytes"
 
     common_rows = "".join("0 0.5 0.5 0.2 0.2\n" for _ in range(12))
     labels = {
@@ -73,8 +78,9 @@ def _demo_members() -> dict[str, bytes]:
         "damaged": "0 0.5 0.5 0.2 0.2\n",
     }
     for stem, content in labels.items():
-        members[f"labels/{stem}.txt"] = content.encode("utf-8")
-    members["labels/orphan.txt"] = b"0 0.5 0.5 0.2 0.2\n"
+        split = "test" if stem in test_stems else "val" if stem in val_stems else "train"
+        members[f"dataset/{split}/labels/{stem}.txt"] = content.encode("utf-8")
+    members["dataset/train/labels/orphan.txt"] = b"0 0.5 0.5 0.2 0.2\n"
     return members
 
 

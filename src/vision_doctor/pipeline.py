@@ -13,7 +13,7 @@ from vision_doctor.checkers.duplicates import find_duplicate_groups
 from vision_doctor.checkers.image_quality import check_image_quality
 from vision_doctor.config import Settings
 from vision_doctor.models import AuditReport
-from vision_doctor.parser import parse_yolo_dataset
+from vision_doctor.parser import parse_yolo_dataset, resolve_yolo_dataset_root
 from vision_doctor.scoring import calculate_health_score
 
 if TYPE_CHECKING:
@@ -51,8 +51,9 @@ def run_pipeline(
         limits=active.upload,
         temp_root=temp_root,
     ) as extracted:
+        dataset_root = resolve_yolo_dataset_root(extracted.root)
         manifest = parse_yolo_dataset(
-            extracted.root,
+            dataset_root,
             source_archive=source.name,
             upload_limits=active.upload,
         )
@@ -60,13 +61,13 @@ def run_pipeline(
         issues.extend(
             check_image_quality(
                 manifest,
-                extracted.root,
+                dataset_root,
                 config=active.image_quality,
             )
         )
         duplicate_groups = find_duplicate_groups(
             manifest,
-            extracted.root,
+            dataset_root,
             config=active.duplicate_detection,
         )
         distribution = calculate_distribution(manifest)

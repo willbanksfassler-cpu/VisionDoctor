@@ -89,17 +89,19 @@ def test_quality_cases_include_measurements_and_thresholds(tmp_path: Path) -> No
 
 
 def test_unreadable_image_does_not_stop_later_images(tmp_path: Path) -> None:
-    damaged = tmp_path / "images/first.png"
+    damaged = tmp_path / "train/images/first.png"
     damaged.parent.mkdir(parents=True)
     damaged.write_bytes(b"broken")
     bright = np.full((400, 400, 3), 250)
-    _save(tmp_path / "images/second.png", bright)
-    (tmp_path / "labels").mkdir()
+    _save(tmp_path / "train/images/second.png", bright)
+    (tmp_path / "train/labels").mkdir()
+    (tmp_path / "val/images").mkdir(parents=True)
+    (tmp_path / "val/labels").mkdir(parents=True)
     (tmp_path / "data.yaml").write_text("names: [object]\n", encoding="utf-8")
 
     manifest = parse_yolo_dataset(tmp_path)
     issues = check_image_quality(manifest, tmp_path)
 
     assert {issue.code for issue in issues} >= {IMAGE_UNREADABLE, IMAGE_BRIGHT}
-    assert manifest.unreadable_image_paths == ["images/first.png"]
+    assert manifest.unreadable_image_paths == ["train/images/first.png"]
     assert manifest.summary.image_count == 2

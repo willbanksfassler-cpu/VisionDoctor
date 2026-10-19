@@ -768,3 +768,39 @@
 - 用户需选择许可证；在此之前仓库没有 `LICENSE`。
 - Streamlit Community Cloud 部署步骤依据 2026-10-17 查阅的官方文档：根目录入口/requirements 布局可用，根级 secrets 可作为环境变量。线上构建、域名、账号权限和公网访问均未验证。
 - 下一步是用户审核 diff、提交并推送 GitHub，再部署 Community Cloud；阶段 9 不自动 commit、push 或 deploy。
+
+## 21. Split-first 数据集结构与发布更新（2026-10-19）
+
+### 21.1 实际变更
+
+- 唯一支持的布局调整为 `train/images`、`train/labels`、`val/images`、`val/labels`，以及可选的同构 `test` split；旧式 `images/train`、`labels/train` 布局会返回明确结构错误。
+- Parser 现在通过唯一的 `data.yaml` 定位数据集根，支持 ZIP 直接以数据集内容为根或包含一个外层 `dataset/` 目录。ZIP 根和数据集根中的其他普通文件会被忽略；多个 `data.yaml` 会因目标歧义被拒绝。
+- Pipeline 使用解析后的真实数据集根执行图片质量和重复检测，避免外层目录导致文件定位失败。缺失标签的期望路径逻辑支持 split-first 布局。
+- Demo ZIP 改为 `dataset/train|val|test/images|labels`，包含额外说明文件以验证忽略行为；仍保持固定随机种子、成员顺序和 ZIP 元数据。
+- README、Demo 说明、上传页面和 MVP 契约已同步更新。相关 parser、annotation、duplicate、image-quality、pipeline 与 UI 测试均使用新结构。
+- DeepSeek JSON 输出上限从 1500 调整为 4000 tokens，并在 Prompt 中增加精简的 JSON 示例和长度约束。代表性证据现在包含真实 `issue_id`，并明确要求模型只能引用这些 ID；未知 ID 的拒绝逻辑保持不变。
+
+### 21.2 真实验证结果
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| `python scripts/generate_demo_dataset.py` | 通过；生成新的 split-first `demo/visiondoctor_demo.zip`（该派生产物继续被 Git 忽略）。 |
+| `python scripts/smoke_test.py` | 通过：15 张图片、14 个 Issue、12 种预期 Issue code、exact/near 重复组、Health Score 61.93/D。 |
+| 首次完整 `python -m pytest -q` | 94 passed、3 failed；失败均为仍构造旧目录的 duplicate/image-quality 测试，更新 fixture 后修复。 |
+| 修复后的 `python -m pytest -q` | 通过：97 passed in 37.91s。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过。 |
+| `git diff --check` | 通过，退出码 0；仅有 LF→CRLF 提示。 |
+| 第一次沙箱实时 API 尝试 | `connection_error`，安全回退；没有作为远程成功证据。 |
+| 放行网络后的第一次响应 | `invalid_json`，安全回退；增加 JSON 示例并提高输出上限。 |
+| 第二次响应 | JSON 合法但为 `unknown_issue_reference`，安全回退；定位为 Prompt 未提供可引用的真实 Issue ID。 |
+| 最终 opt-in 实时验证 | 通过：provider=`deepseek`、model=`deepseek-flash`、`generated_by=llm`、`live_api_verified=true`、`failure_stage=null`，Diagnosis 通过 Pydantic 校验。 |
+
+实时验证只发送聚合统计、Issue 分组、Health Score、类别分布和最多 5 条代表性证据；没有发送图片、完整标签、完整 Issue 列表或完整数据集。输出和日志未包含 Key、请求头、完整 Prompt 或原始响应。
+
+### 21.3 当前阶段状态
+
+- 最终本地复验：Python 3.11.7；Demo 生成与 Smoke Test 通过；`python -m pytest -q` 为 97 passed in 37.50s；Ruff、compileall、`git diff --check` 均通过。
+- Streamlit 在本机放行回环端口后于 8507 成功启动，`http://127.0.0.1:8507` 返回 HTTP 200 且页面含 Streamlit 标识，随后正常停止。沙箱内的首次探测因套接字权限失败，未被记为应用启动证据。
+- `.env`、`.venv`、`.streamlit/secrets.toml` 和 `demo/visiondoctor_demo.zip` 均继续命中 `.gitignore`，未出现在 Git 状态中。
+- 本次兼容修改与本地验证已完成。提交、推送和 Streamlit Cloud 重新构建结果将在发布后补记；在这些步骤完成前，不把外部发布更新描述为完成。

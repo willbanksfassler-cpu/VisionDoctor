@@ -14,20 +14,22 @@ from vision_doctor.parser import parse_yolo_dataset
 
 
 def _write_dataset(root: Path) -> None:
-    (root / "images").mkdir()
-    (root / "labels").mkdir()
+    (root / "train" / "images").mkdir(parents=True)
+    (root / "train" / "labels").mkdir(parents=True)
+    (root / "val" / "images").mkdir(parents=True)
+    (root / "val" / "labels").mkdir(parents=True)
     (root / "data.yaml").write_text("names: [object]\n", encoding="utf-8")
     random = np.random.default_rng(42)
     base = random.integers(0, 256, size=(128, 128, 3), dtype=np.uint8)
-    Image.fromarray(base).save(root / "images/a.png")
-    shutil.copyfile(root / "images/a.png", root / "images/b.png")
+    Image.fromarray(base).save(root / "train/images/a.png")
+    shutil.copyfile(root / "train/images/a.png", root / "train/images/b.png")
     near = base.copy()
     near[0, 0, 0] = (int(near[0, 0, 0]) + 1) % 256
-    Image.fromarray(near).save(root / "images/c.png")
+    Image.fromarray(near).save(root / "train/images/c.png")
     unrelated = np.random.default_rng(7).integers(
         0, 256, size=(128, 128, 3), dtype=np.uint8
     )
-    Image.fromarray(unrelated).save(root / "images/d.png")
+    Image.fromarray(unrelated).save(root / "val/images/d.png")
 
 
 def test_exact_and_near_duplicates_are_distinct_and_deterministic(
@@ -41,14 +43,14 @@ def test_exact_and_near_duplicates_are_distinct_and_deterministic(
     near = [group for group in groups if group.kind == "near"]
 
     assert len(exact) == 1
-    assert exact[0].image_ids == ["images/a.png", "images/b.png"]
-    assert exact[0].representative_image_id == "images/a.png"
+    assert exact[0].image_ids == ["train/images/a.png", "train/images/b.png"]
+    assert exact[0].representative_image_id == "train/images/a.png"
     assert exact[0].hamming_distance == 0
     assert len(near) == 1
-    assert near[0].image_ids == ["images/a.png", "images/c.png"]
-    assert near[0].representative_image_id == "images/a.png"
+    assert near[0].image_ids == ["train/images/a.png", "train/images/c.png"]
+    assert near[0].representative_image_id == "train/images/a.png"
     assert near[0].hamming_distance <= 4
-    assert "images/d.png" not in exact[0].image_ids + near[0].image_ids
+    assert "val/images/d.png" not in exact[0].image_ids + near[0].image_ids
     assert len(near[0].pair_distances) == 1
     assert groups == find_duplicate_groups(manifest, tmp_path)
 

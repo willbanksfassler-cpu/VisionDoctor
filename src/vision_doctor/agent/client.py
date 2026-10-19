@@ -73,7 +73,7 @@ class OpenAICompatibleDatasetDoctorClient:
         provider: str,
         base_url: str | None,
         max_retries: int,
-        max_output_tokens: int = 1_500,
+        max_output_tokens: int = 4_000,
         sdk_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._api_key = api_key

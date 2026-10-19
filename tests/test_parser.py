@@ -1,4 +1,4 @@
-"""Tests for supported YOLO Detection layouts and tolerant label parsing."""
+"""Tests for split-first YOLO Detection discovery and tolerant label parsing."""
 
 from __future__ import annotations
 
@@ -20,52 +20,74 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def test_flat_layout_and_names_list_are_parsed(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "name: flat\nnames: [cat, dog]\n")
-    write_image(tmp_path / "images" / "sample.JPG")
-    write_text(tmp_path / "labels" / "sample.txt", "1 0.5 0.5 0.4 0.2\n")
+def prepare_dataset(root: Path, yaml_content: str = "names: [cat]\n") -> None:
+    write_text(root / "data.yaml", yaml_content)
+    for split in ("train", "val"):
+        (root / split / "images").mkdir(parents=True)
+        (root / split / "labels").mkdir(parents=True)
 
-    manifest = parse_yolo_dataset(tmp_path, source_archive="flat.zip")
 
-    assert manifest.dataset_name == "flat"
-    assert manifest.source_archive == "flat.zip"
+def test_split_first_layout_and_names_list_are_parsed(tmp_path: Path) -> None:
+    prepare_dataset(tmp_path, "name: canonical\nnames: [cat, dog]\n")
+    write_image(tmp_path / "train" / "images" / "sample.JPG")
+    write_text(
+        tmp_path / "train" / "labels" / "sample.txt",
+        "1 0.5 0.5 0.4 0.2\n",
+    )
+
+    manifest = parse_yolo_dataset(tmp_path, source_archive="canonical.zip")
+
+    assert manifest.dataset_name == "canonical"
+    assert manifest.source_archive == "canonical.zip"
     assert manifest.class_names == {0: "cat", 1: "dog"}
-    assert manifest.images[0].relative_path == "images/sample.JPG"
+    assert manifest.images[0].relative_path == "train/images/sample.JPG"
     assert manifest.images[0].annotation_count == 1
-    assert manifest.images[0].label_path == "labels/sample.txt"
-    assert manifest.images[0].label_status == "present"
-    assert manifest.annotations[0].source_path == "labels/sample.txt"
+    assert manifest.images[0].label_path == "train/labels/sample.txt"
+    assert manifest.annotations[0].source_path == "train/labels/sample.txt"
     assert manifest.annotations[0].class_id == 1
     assert manifest.parse_errors == []
-    assert manifest.summary.annotation_count == 1
 
 
-def test_split_layout_and_integer_names_mapping_are_parsed(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names:\n  0: cat\n  1: dog\n")
-    write_image(tmp_path / "images" / "train" / "a.png")
-    write_image(tmp_path / "images" / "val" / "b.webp")
-    write_text(tmp_path / "labels" / "train" / "a.txt", "0 0.5 0.5 0.2 0.2\n")
-    write_text(tmp_path / "labels" / "val" / "b.txt", "1 0.5 0.5 0.4 0.4\n")
+def test_wrapper_root_extras_test_split_and_names_mapping_are_supported(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    prepare_dataset(dataset, "names:\n  0: cat\n  1: dog\n")
+    (dataset / "test" / "images").mkdir(parents=True)
+    (dataset / "test" / "labels").mkdir(parents=True)
+    write_text(tmp_path / "packaging-note.md", "ignored\n")
+    write_text(dataset / "LICENSE.txt", "ignored\n")
+    write_image(dataset / "train" / "images" / "nested" / "a.png")
+    write_image(dataset / "val" / "images" / "b.webp")
+    write_image(dataset / "test" / "images" / "c.jpeg")
+    write_text(
+        dataset / "train" / "labels" / "nested" / "a.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
+    write_text(dataset / "val" / "labels" / "b.txt", "1 0.5 0.5 0.4 0.4\n")
+    write_text(dataset / "test" / "labels" / "c.txt", "0 0.5 0.5 0.3 0.3\n")
 
     manifest = parse_yolo_dataset(tmp_path)
 
     assert [image.relative_path for image in manifest.images] == [
-        "images/train/a.png",
-        "images/val/b.webp",
+        "train/images/nested/a.png",
+        "val/images/b.webp",
+        "test/images/c.jpeg",
     ]
     assert [annotation.source_path for annotation in manifest.annotations] == [
-        "labels/train/a.txt",
-        "labels/val/b.txt",
+        "train/labels/nested/a.txt",
+        "val/labels/b.txt",
+        "test/labels/c.txt",
     ]
-    assert manifest.summary.image_count == 2
-    assert manifest.summary.label_file_count == 2
+    assert manifest.summary.image_count == 3
+    assert manifest.summary.label_file_count == 3
 
 
 def test_bad_label_rows_are_recorded_and_valid_rows_continue(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "sample.bmp")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "sample.bmp")
     write_text(
-        tmp_path / "labels" / "sample.txt",
+        tmp_path / "train" / "labels" / "sample.txt",
         "0 0.5 0.5 0.2 0.2\n"
         "0 0.5 0.5 0.2\n"
         "cat 0.5 0.5 0.2 0.2\n"
@@ -82,14 +104,19 @@ def test_bad_label_rows_are_recorded_and_valid_rows_continue(tmp_path: Path) -> 
         "label.unknown_class",
         "label.bbox_out_of_range",
     ]
-    assert all(error.source_path == "labels/sample.txt" for error in manifest.parse_errors)
-    assert manifest.summary.issue_count == 4
+    assert all(
+        error.source_path == "train/labels/sample.txt"
+        for error in manifest.parse_errors
+    )
 
 
 def test_orphan_label_is_recorded(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "sample.jpeg")
-    write_text(tmp_path / "labels" / "orphan.txt", "0 0.5 0.5 0.2 0.2\n")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "sample.jpeg")
+    write_text(
+        tmp_path / "train" / "labels" / "orphan.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
 
     manifest = parse_yolo_dataset(tmp_path)
 
@@ -98,25 +125,25 @@ def test_orphan_label_is_recorded(tmp_path: Path) -> None:
 
 
 def test_missing_and_empty_label_state_is_preserved(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "missing.jpg")
-    write_image(tmp_path / "images" / "empty.png")
-    write_text(tmp_path / "labels" / "empty.txt", "\n  \n")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "missing.jpg")
+    write_image(tmp_path / "val" / "images" / "empty.png")
+    write_text(tmp_path / "val" / "labels" / "empty.txt", "\n  \n")
 
     manifest = parse_yolo_dataset(tmp_path)
     images = {image.relative_path: image for image in manifest.images}
 
-    assert images["images/missing.jpg"].label_status == "missing"
-    assert images["images/missing.jpg"].label_path is None
-    assert images["images/empty.png"].label_status == "empty"
-    assert images["images/empty.png"].label_path == "labels/empty.txt"
+    assert images["train/images/missing.jpg"].label_status == "missing"
+    assert images["train/images/missing.jpg"].label_path is None
+    assert images["val/images/empty.png"].label_status == "empty"
+    assert images["val/images/empty.png"].label_path == "val/labels/empty.txt"
 
 
 def test_bbox_error_categories_are_preserved(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "images" / "sample.png")
+    prepare_dataset(tmp_path)
+    write_image(tmp_path / "train" / "images" / "sample.png")
     write_text(
-        tmp_path / "labels" / "sample.txt",
+        tmp_path / "train" / "labels" / "sample.txt",
         "0 0.5 0.5 0 0.2\n"
         "0 1.2 0.5 0.2 0.2\n"
         "0 0.05 0.5 0.2 0.2\n"
@@ -138,22 +165,30 @@ def test_bbox_error_categories_are_preserved(tmp_path: Path) -> None:
 
 
 def test_unreadable_image_is_preserved_without_stopping_dataset(tmp_path: Path) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    damaged = tmp_path / "images" / "damaged.png"
-    damaged.parent.mkdir(parents=True)
+    prepare_dataset(tmp_path)
+    damaged = tmp_path / "train" / "images" / "damaged.png"
     damaged.write_bytes(b"not an image")
-    write_image(tmp_path / "images" / "valid.png")
-    write_text(tmp_path / "labels" / "damaged.txt", "0 0.5 0.5 0.2 0.2\n")
-    write_text(tmp_path / "labels" / "valid.txt", "0 0.5 0.5 0.2 0.2\n")
+    valid = tmp_path / "val" / "images" / "valid.png"
+    write_image(valid)
+    write_text(
+        tmp_path / "train" / "labels" / "damaged.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
+    write_text(
+        tmp_path / "val" / "labels" / "valid.txt",
+        "0 0.5 0.5 0.2 0.2\n",
+    )
 
     manifest = parse_yolo_dataset(tmp_path)
 
-    assert manifest.unreadable_image_paths == ["images/damaged.png"]
-    assert [image.relative_path for image in manifest.images] == ["images/valid.png"]
+    assert manifest.unreadable_image_paths == ["train/images/damaged.png"]
+    assert [image.relative_path for image in manifest.images] == [
+        "val/images/valid.png"
+    ]
     assert manifest.summary.image_count == 2
     assert manifest.summary.annotation_count == 2
-    assert manifest.summary.total_size_bytes == sum(
-        path.stat().st_size for path in (damaged, tmp_path / "images" / "valid.png")
+    assert manifest.summary.total_size_bytes == (
+        damaged.stat().st_size + valid.stat().st_size
     )
 
 
@@ -169,9 +204,7 @@ def test_unreadable_image_is_preserved_without_stopping_dataset(tmp_path: Path) 
 def test_unsupported_data_yaml_is_rejected(
     tmp_path: Path, yaml_content: str, message: str
 ) -> None:
-    write_text(tmp_path / "data.yaml", yaml_content)
-    (tmp_path / "images").mkdir()
-    (tmp_path / "labels").mkdir()
+    prepare_dataset(tmp_path, yaml_content)
 
     with pytest.raises(DatasetParseError, match=message):
         parse_yolo_dataset(tmp_path)
@@ -183,4 +216,29 @@ def test_missing_or_invalid_data_yaml_has_clear_error(tmp_path: Path) -> None:
 
     write_text(tmp_path / "data.yaml", "names: [cat\n")
     with pytest.raises(DatasetParseError, match="invalid YAML"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_legacy_images_first_layout_is_rejected(tmp_path: Path) -> None:
+    write_text(tmp_path / "data.yaml", "names: [cat]\n")
+    write_image(tmp_path / "images" / "train" / "a.png")
+    write_text(tmp_path / "labels" / "train" / "a.txt", "0 0.5 0.5 0.2 0.2\n")
+
+    with pytest.raises(DatasetParseError, match="split 'train'"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_optional_test_split_must_be_complete(tmp_path: Path) -> None:
+    prepare_dataset(tmp_path)
+    (tmp_path / "test").mkdir()
+
+    with pytest.raises(DatasetParseError, match="split 'test'"):
+        parse_yolo_dataset(tmp_path)
+
+
+def test_multiple_nested_data_yaml_files_are_rejected(tmp_path: Path) -> None:
+    prepare_dataset(tmp_path / "one")
+    prepare_dataset(tmp_path / "two")
+
+    with pytest.raises(DatasetParseError, match="multiple data.yaml"):
         parse_yolo_dataset(tmp_path)

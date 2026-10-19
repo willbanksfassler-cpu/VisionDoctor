@@ -61,8 +61,10 @@ def _stable_issue_id(
 
 def _expected_label_path(image_path: str) -> str:
     parts = image_path.split("/")
-    if parts and parts[0].casefold() == "images":
-        parts[0] = "labels"
+    for index, part in enumerate(parts):
+        if part.casefold() == "images":
+            parts[index] = "labels"
+            break
     stem = parts[-1].rsplit(".", maxsplit=1)[0]
     parts[-1] = f"{stem}.txt"
     return "/".join(parts)

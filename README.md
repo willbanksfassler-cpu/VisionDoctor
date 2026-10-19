@@ -39,33 +39,23 @@ flowchart LR
 
 ## 支持的数据集结构
 
-单目录形式：
-
 ```text
 dataset/
-├── data.yaml
-├── images/
-│   ├── a.jpg
-│   └── b.png
-└── labels/
-    ├── a.txt
-    └── b.txt
+├── train/
+│   ├── images/
+│   └── labels/
+├── val/
+│   ├── images/
+│   └── labels/
+├── test/                 # 可选
+│   ├── images/
+│   └── labels/
+└── data.yaml
 ```
 
-按 split 组织：
+`train` 和 `val` 必须存在；`test` 可选。ZIP 可以直接以数据集内容为根，也可以有一个外层目录（例如 `dataset/`）。系统通过唯一的 `data.yaml` 定位数据集根，允许 ZIP 根和数据集根包含 README、许可证等其他普通文件；多个 `data.yaml` 会因无法安全确定目标数据集而被拒绝。图片和标签在同一 split 内按相对于各自 `images/`、`labels/` 的路径和 stem 配对。
 
-```text
-dataset/
-├── data.yaml
-├── images/
-│   ├── train/
-│   └── val/
-└── labels/
-    ├── train/
-    └── val/
-```
-
-图片格式支持 JPG、JPEG、PNG、BMP 和 WEBP；标签行为 `class_id x_center y_center width height`。不支持 COCO、分割、姿态或训练流程。
+图片格式支持 JPG、JPEG、PNG、BMP 和 WEBP；标签行为 `class_id x_center y_center width height`。旧式 `images/train`、`labels/train` 布局不再属于支持范围。不支持 COCO、分割、姿态或训练流程。
 
 ## 安装
 
@@ -115,7 +105,7 @@ Copy-Item .env.example .env
 
 如需 DeepSeek，将 `.env` 中 `VISION_DOCTOR_LLM__ENABLED` 改为 `true`，并只在本机填写 Key；不要提交 `.env`。DeepSeek 地址固定限制为官方 HTTPS origin `https://api.deepseek.com`。UI 中还需主动勾选外部 LLM，才可能发起请求并产生费用。
 
-未配置 Key、LLM 被禁用、SDK 缺失、超时、网络/API 错误、非 JSON 或 Schema 校验失败时，系统均返回同一 `Diagnosis` 类型的 deterministic fallback。mock 已验证 DeepSeek 的 OpenAI-compatible 接口；当前真实 DeepSeek 请求尚未成功获得通过校验的 LLM Diagnosis，因此不能把兼容性测试等同于线上 API 成功。
+未配置 Key、LLM 被禁用、SDK 缺失、超时、网络/API 错误、非 JSON 或 Schema 校验失败时，系统均返回同一 `Diagnosis` 类型的 deterministic fallback。mock 已验证 DeepSeek 的 OpenAI-compatible 接口；2026-10-19 还使用本地环境变量中的凭证对官方 API 完成了一次 opt-in 实时验证，返回 `generated_by=llm` 且通过 Pydantic 校验。真实调用仍是可选路径，不影响无 Key 演示。
 
 ## 测试与静态检查
 

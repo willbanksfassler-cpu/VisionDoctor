@@ -79,7 +79,7 @@ def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> Non
         bbox_image = image_for_issue(report, bbox_issues[0])
         assert bbox_image is not None
         assert 0 in class_ids_for_issue(report, bbox_issues[0])
-        assert split_for_path(bbox_image.relative_path) == "root"
+        assert split_for_path(bbox_image.relative_path) == "train"
         preview = render_archive_preview(
             workspace.archive_path,
             bbox_image.relative_path,

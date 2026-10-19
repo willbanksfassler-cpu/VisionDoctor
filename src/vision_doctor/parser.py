@@ -316,37 +316,88 @@ def _parse_label_file(
     return annotations, errors, "present" if has_content else "empty"
 
 
+def resolve_yolo_dataset_root(dataset_root: str | Path) -> Path:
+    """Locate the one dataset root represented by ``data.yaml``.
+
+    ZIP archives commonly contain either the dataset files directly or one
+    enclosing directory such as ``dataset/``. Unrelated root files are allowed,
+    but multiple candidate datasets are rejected instead of being guessed.
+    """
+
+    root = Path(dataset_root).resolve()
+    if not root.is_dir():
+        raise DatasetParseError("Dataset root does not exist or is not a directory.")
+    direct = root / "data.yaml"
+    if direct.is_file():
+        return root
+    candidates = sorted(path for path in root.rglob("data.yaml") if path.is_file())
+    if not candidates:
+        raise DatasetParseError(
+            "Dataset archive must contain data.yaml exactly once at its dataset root."
+        )
+    if len(candidates) > 1:
+        relative_candidates = ", ".join(
+            path.relative_to(root).as_posix() for path in candidates
+        )
+        raise DatasetParseError(
+            "Dataset archive contains multiple data.yaml files; dataset root is "
+            f"ambiguous: {relative_candidates}."
+        )
+    return candidates[0].parent.resolve()
+
+
+def _discover_split_files(
+    root: Path,
+    split: str,
+    image_suffixes: frozenset[str],
+) -> tuple[dict[str, Path], dict[str, Path]]:
+    split_root = root / split
+    images_directory = split_root / "images"
+    labels_directory = split_root / "labels"
+    if not images_directory.is_dir() or not labels_directory.is_dir():
+        raise DatasetParseError(
+            f"Dataset split {split!r} must contain both images/ and labels/ directories."
+        )
+    return (
+        _discover_by_key(images_directory, image_suffixes),
+        _discover_by_key(labels_directory, frozenset({".txt"})),
+    )
+
+
 def parse_yolo_dataset(
     dataset_root: str | Path,
     *,
     source_archive: str | None = None,
     upload_limits: UploadLimits | None = None,
 ) -> DatasetManifest:
-    """Parse a flat or train/val YOLO Detection directory into a manifest."""
+    """Parse canonical split-first YOLO Detection directories into a manifest."""
 
-    root = Path(dataset_root).resolve()
-    if not root.is_dir():
-        raise DatasetParseError("Dataset root does not exist or is not a directory.")
-
+    root = resolve_yolo_dataset_root(dataset_root)
     data_yaml = root / "data.yaml"
-    if not data_yaml.is_file():
-        raise DatasetParseError("Dataset root must contain data.yaml.")
     class_names, yaml_document = _load_class_names(data_yaml)
-
-    images_directory = root / "images"
-    labels_directory = root / "labels"
-    if not images_directory.is_dir() or not labels_directory.is_dir():
-        raise DatasetParseError(
-            "Dataset root must contain both images/ and labels/ directories."
-        )
-
     active_limits = upload_limits or UploadLimits()
-    image_paths = _discover_by_key(
-        images_directory, active_limits.allowed_image_extensions
-    )
-    label_paths = _discover_by_key(labels_directory, frozenset({".txt"}))
+    splits = ["train", "val"]
+    if (root / "test").exists():
+        splits.append("test")
+
+    image_paths: dict[str, Path] = {}
+    label_paths: dict[str, Path] = {}
+    for split in splits:
+        split_images, split_labels = _discover_split_files(
+            root,
+            split,
+            active_limits.allowed_image_extensions,
+        )
+        image_paths.update(
+            {f"{split}/{key}": path for key, path in split_images.items()}
+        )
+        label_paths.update(
+            {f"{split}/{key}": path for key, path in split_labels.items()}
+        )
     if not image_paths:
-        raise DatasetParseError("Dataset images/ directory contains no supported images.")
+        raise DatasetParseError(
+            "Dataset train/ and val/ image directories contain no supported images."
+        )
 
     annotations: list[AnnotationRecord] = []
     parse_errors: list[ParseErrorRecord] = []
