@@ -900,7 +900,14 @@
 
 真实 API 验证最多发送一次请求，只发送聚合统计、Issue 分组、Health Score、类别分布和有限代表性证据；没有发送图片、完整标签、完整 Issue 列表或完整数据集。输出未包含 Key、Authorization、完整 prompt 或完整原始响应。
 
-### 23.4 当前状态与剩余工作
+### 23.4 GitHub、Streamlit Cloud 与线上回归
 
-- 本轮代码、Demo、本地质量门禁、本地启动和真实 DeepSeek API 验证均已完成。
-- 阶段当前为 **In progress**：尚未创建本轮提交、推送到 GitHub、触发 Streamlit Cloud 拉取新提交，也尚未用新 Demo 完成线上回归。只有这些外部步骤获得实际证据后才可改为 Complete。
+- split-first 收敛修改已提交为 `87f93b9 Support canonical split-first YOLO datasets` 并成功推送到 `origin/main`；GitHub 仓库页面刷新后实际显示新提交时间与新版 README，仓库地址仍为 `https://github.com/willbanksfassler-cpu/VisionDoctor`。
+- 现有 Streamlit Community Cloud 应用自动拉取新提交；线上上传页实际显示 train 必需、val/test 可选、ZIP/数据集根可包含其他普通文件的新说明。Demo 地址仍为 `https://visiondoctor-2ttszahu2sph93rcmt9a3h.streamlit.app/`。
+- 已上传本地重新生成且被 Git 忽略的 `demo/visiondoctor_demo.zip`（页面显示约 4.7 MB），并完成线上分析；页面明确显示 `Dataset health check complete`。
+- Dashboard 实际显示 Health Score 61.9/100、15 张图片、15 个标签、21 个目标、3 个类别，以及 0 critical、4 error、9 warning、1 info；类别分布、扣分构成和图片质量统计正常呈现。
+- Issue Explorer 实际显示 14 个问题，路径采用 `train/...` 和 `val/...` 的 split-first 形式，并包含 bbox、图片质量以及 1 个 exact/1 个 near 重复组。
+- AI Doctor & Report 在线模式为 deterministic fallback，risk 为 High，assessment、5 个 priority findings、action plan、caveats 和两个下载按钮均非空。云端未上传本机 `.env` 或 Key；真实 DeepSeek 成功证据来自本地 opt-in 验证。
+- 线上 JSON 和 HTML 均实际下载成功。JSON 为 34,612 字节，通过 `AuditReport.model_validate_json`，schema 为 `1.0.0`、15 张图片、14 个 Issue、`generated_by=deterministic`；HTML 为 15,488 字节，包含文档声明与 Health Score，未发现 Windows 本机路径或常见 Key/Authorization 模式。
+- 浏览器日志未出现 error；仅有两条 Vega 离散轴 scale-binding 警告，不影响页面或分析结果。
+- 本轮阶段状态为 **Complete**：实现、本地质量门禁、真实 DeepSeek 请求、提交、push、云端更新、新 Demo 在线分析及报告下载均有实际证据。`.env`、API Key、`.venv`、上传数据和生成 Demo ZIP 未进入提交，没有 force push、数据库或额外产品功能。
