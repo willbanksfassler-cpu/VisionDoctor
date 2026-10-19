@@ -856,6 +856,12 @@
 
 ### 22.4 当前状态与下一步
 
-- 本地实现与必需质量门禁已完成，当前阶段在外部发布前为 **In progress**。
-- 下一步必须先审计 staged 内容，确认 `.env`、`.venv`、`.streamlit/secrets.toml`、上传数据和 `demo/visiondoctor_demo.zip` 未进入提交，再提交并推送 `main`。
-- 推送后需要等待或触发 Streamlit Community Cloud 拉取最新 commit，并用重新生成的 Demo ZIP 进行线上 deterministic fallback 验收。只有线上页面实际显示新结构说明、分析成功且下载/安全检查通过后，本节才能更新为 **Complete**。
+- 兼容性修改已提交为 `5da70f8 Support flexible YOLO dataset layouts` 并成功推送到 `origin/main`；GitHub 页面实际显示新提交和新版 README。首次沙箱内 push 因本机代理不可达失败，放行网络后的同一命令成功，没有 force push 或历史改写。
+- Streamlit Community Cloud 在 push 后仍短暂显示旧版上传说明，随后在应用管理页明确执行一次 Reboot；重启后线上页面实际显示 split-first、images-first、flat 三种布局、可选 val/test 和缺失 labels 的新版说明。
+- 已把本地重新生成且被 Git 忽略的 `demo/visiondoctor_demo.zip` 上传到现有 Demo，并保持“Use configured external LLM”未勾选。线上页面报告 `Dataset health check complete`，本次没有调用真实付费 API。
+- Dashboard 实际显示 Health Score 61.9/100、15 张图片、15 个标签、21 个目标、3 个类别，以及 0 critical、4 error、9 warning、1 info。
+- Issue Explorer 实际显示 14 个问题，包含 `BBOX_OUT_OF_RANGE`、`BBOX_TINY`、图片质量问题和 1 个 exact/1 个 near 重复组；路径同时包含 `train/...` 和 `val/...` 的 split-first 相对路径。
+- AI Doctor & Report 实际显示 deterministic fallback、High risk、非空 assessment/findings/action plan/caveats 及两种下载按钮。
+- 线上下载的 JSON 为 34,612 字节，`schema_version=1.0.0`，通过 `AuditReport.model_validate_json`，Health Score 为 61.93，`generated_by=deterministic`；HTML 为 15,488 字节，包含 HTML 文档声明和 Health Score 内容。
+- GitHub 仓库为 `https://github.com/willbanksfassler-cpu/VisionDoctor`，Streamlit Demo 为 `https://visiondoctor-2ttszahu2sph93rcmt9a3h.streamlit.app/`。
+- 本轮阶段状态为 **Complete**。实现、本地质量门禁、提交、push、云端重启、新 Demo 在线分析和报告下载均有实际证据，可以进入下一阶段或赛事交付；开始任何后续变更前仍应重新读取实时仓库状态。
