@@ -804,3 +804,15 @@
 - Streamlit 在本机放行回环端口后于 8507 成功启动，`http://127.0.0.1:8507` 返回 HTTP 200 且页面含 Streamlit 标识，随后正常停止。沙箱内的首次探测因套接字权限失败，未被记为应用启动证据。
 - `.env`、`.venv`、`.streamlit/secrets.toml` 和 `demo/visiondoctor_demo.zip` 均继续命中 `.gitignore`，未出现在 Git 状态中。
 - 本次兼容修改与本地验证已完成。提交、推送和 Streamlit Cloud 重新构建结果将在发布后补记；在这些步骤完成前，不把外部发布更新描述为完成。
+
+### 21.4 外部发布与线上复验
+
+- split-first 兼容修改已提交并推送到 GitHub `main` 分支；Streamlit Community Cloud 随后执行了应用重启并拉取最新代码。
+- GitHub 仓库：`https://github.com/willbanksfassler-cpu/VisionDoctor`。
+- Streamlit Demo：`https://visiondoctor-2ttszahu2sph93rcmt9a3h.streamlit.app/`。
+- 云端上传页已实际显示 `train/images`、`train/labels`、`val/images`、`val/labels` 和可选 `test` 的新版说明，不再显示旧式 `images/train` 结构。
+- 已将本地重新生成且被 Git 忽略的 `demo/visiondoctor_demo.zip` 上传到云端页面，并完成一次线上分析：页面报告 `Dataset health check complete`；Dashboard 显示 Health Score 61.9/100、15 张图片、15 个标签、21 个目标、3 个类别、0 critical、4 error、9 warning、1 info。
+- Issue Explorer 显示 14 个问题，实际包含 bbox 问题、图片质量问题，以及 1 个 exact 和 1 个 near 重复组；路径采用 `train/...`、`val/...` 的 split-first 相对形式。
+- AI Doctor & Report 在线运行模式为 deterministic fallback，risk 为 High，assessment、priority findings、action plan、caveats 以及 JSON/HTML 下载控件均非空。真实 DeepSeek API 已在本地 opt-in 验证中成功取得 `generated_by=llm` 并通过 Diagnosis 校验，但未把本机 Key 上传到 Streamlit Cloud。
+- 浏览器自动化的下载保存事件在本次复验中超时，因此没有把新的自动下载文件记为通过证据；此前用户已人工确认两个报告下载及 JSON 校验成功。本次代码级报告 round-trip 和 HTML 生成仍由 97 项全量测试覆盖。
+- `.env`、API Key、`.venv`、上传数据和 `demo/visiondoctor_demo.zip` 均未进入提交；没有执行 force push，也没有部署数据库。
