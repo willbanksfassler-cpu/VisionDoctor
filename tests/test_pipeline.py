@@ -88,26 +88,23 @@ def test_pipeline_can_attach_no_key_fallback_diagnosis(tmp_path: Path) -> None:
     assert report.diagnosis.generated_by == "deterministic"
 
 
-def test_pipeline_accepts_images_first_layout_with_optional_val(
-    tmp_path: Path,
-) -> None:
+def test_pipeline_accepts_train_only_wrapper_with_root_extras(tmp_path: Path) -> None:
     image_buffer = io.BytesIO()
     Image.new("RGB", (32, 32), color=(20, 40, 60)).save(
         image_buffer, format="PNG"
     )
-    archive = tmp_path / "images-first.zip"
+    archive = tmp_path / "split-first.zip"
     with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("packaging-note.json", "{}")
+        output.writestr("dataset/data.yaml", "nc: 1\nnames: [cat]\n")
+        output.writestr("dataset/README.txt", "ignored")
+        output.writestr("dataset/train/images/a.png", image_buffer.getvalue())
         output.writestr(
-            "dataset/data.yaml",
-            "train: images/train\nnc: 1\nnames: [cat]\n",
-        )
-        output.writestr("dataset/images/train/a.png", image_buffer.getvalue())
-        output.writestr(
-            "dataset/labels/train/a.txt",
+            "dataset/train/labels/a.txt",
             "0 0.5 0.5 0.2 0.2\n",
         )
 
     report = run_pipeline(archive, temp_root=tmp_path)
 
     assert report.manifest.summary.image_count == 1
-    assert report.manifest.images[0].relative_path == "images/train/a.png"
+    assert report.manifest.images[0].relative_path == "train/images/a.png"

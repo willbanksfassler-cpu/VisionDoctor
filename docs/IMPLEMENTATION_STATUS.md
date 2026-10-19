@@ -865,3 +865,42 @@
 - 线上下载的 JSON 为 34,612 字节，`schema_version=1.0.0`，通过 `AuditReport.model_validate_json`，Health Score 为 61.93，`generated_by=deterministic`；HTML 为 15,488 字节，包含 HTML 文档声明和 Health Score 内容。
 - GitHub 仓库为 `https://github.com/willbanksfassler-cpu/VisionDoctor`，Streamlit Demo 为 `https://visiondoctor-2ttszahu2sph93rcmt9a3h.streamlit.app/`。
 - 本轮阶段状态为 **Complete**。实现、本地质量门禁、提交、push、云端重启、新 Demo 在线分析和报告下载均有实际证据，可以进入下一阶段或赛事交付；开始任何后续变更前仍应重新读取实时仓库状态。
+
+## 23. split-first 数据集契约收敛与重新发布（2026-10-19）
+
+### 23.1 实时基线
+
+- 本轮开始时分支为 `main`，远程 `origin` 为 `https://github.com/willbanksfassler-cpu/VisionDoctor.git`，最新提交为 `4a28f34 Record flexible layout deployment verification`。
+- 工作区开始时已有 12 个未提交修改，主要把 Parser、文档、Demo 和测试从多布局支持收敛为 split-first；本轮在保留这一目标的同时修复了 `val` 被误设为必需项、根目录歧义检查和 YAML 契约回退等问题。
+- 从项目目录向上未发现适用的 `AGENTS.md`。`.env`、`.venv`、`.streamlit/secrets.toml` 和 `demo/visiondoctor_demo.zip` 均继续命中 `.gitignore`；没有读取或输出 `.env` 内容。
+
+### 23.2 当前实现契约
+
+- 唯一支持的业务布局为 `data.yaml` + `train/images` + `train/labels`；同构的 `val` 和 `test` 可选，一旦 split 目录存在就必须同时包含 `images/` 与 `labels/`。
+- ZIP 可直接以数据集内容为根，也可以包含一个数据集外层目录。Parser 通过唯一真实 `data.yaml` 定位数据集根，忽略 `__MACOSX` 元数据 YAML；多个真实 `data.yaml` 会被明确拒绝。
+- ZIP 根和数据集根可包含 README、LICENSE、JSON、二进制说明文件等其他普通文件，这些文件不会参与图片与标签配对。图片和标签只在同一 split 内按相对于 `images/`/`labels/` 的路径和 stem 匹配。
+- `data.yaml` 的 `names` 必需并支持列表或连续整数键字典；可选 `nc` 必须是正整数且与 `names` 数量一致。旧式 images-first 和 flat 布局不再属于支持范围。
+- UI、README、MVP 契约、Demo 说明、split 展示和测试已同步到该契约；未新增训练、数据库、Multi-Agent、COCO、分割或姿态能力。
+
+### 23.3 本地验证和真实 DeepSeek 验证
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 修改前聚焦测试 | 22 passed in 6.55s。 |
+| 首次修正后的聚焦测试 | 30 passed、1 failed；失败为测试没有准备训练图片，先触发了更早的空训练集错误，修正 fixture 后重跑。 |
+| `python -m pytest -q tests/test_parser.py tests/test_annotation_checker.py tests/test_pipeline.py tests/test_ui_smoke.py` | 通过：34 passed in 6.20s。 |
+| `python scripts/generate_demo_dataset.py` | 通过；生成被 Git 忽略的 split-first `demo/visiondoctor_demo.zip`。 |
+| `python scripts/smoke_test.py` | 通过：15 张图片、14 个 Issue、12 种预期 Issue code、exact/near 重复组、Health Score 61.93/D、schema `1.0.0`。 |
+| `python -m pytest -q` | 通过：105 passed in 35.91s；0 failed。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall -q app.py src scripts` | 通过，退出码 0。 |
+| `git diff --check` | 通过，退出码 0。 |
+| 本地 Streamlit 启动 | 通过：8511 端口返回 HTTP 200 且包含 Streamlit 标识，随后停止对应进程。 |
+| `VISION_DOCTOR_LIVE_API_TEST=1 python scripts/verify_deepseek.py` | 真实 DeepSeek 请求成功：provider `deepseek`、model `deepseek-flash`、`generated_by=llm`、`diagnosis_schema_valid=true`、`live_api_verified=true`、`failure_stage=null`；脚本退出码 0。 |
+
+真实 API 验证最多发送一次请求，只发送聚合统计、Issue 分组、Health Score、类别分布和有限代表性证据；没有发送图片、完整标签、完整 Issue 列表或完整数据集。输出未包含 Key、Authorization、完整 prompt 或完整原始响应。
+
+### 23.4 当前状态与剩余工作
+
+- 本轮代码、Demo、本地质量门禁、本地启动和真实 DeepSeek API 验证均已完成。
+- 阶段当前为 **In progress**：尚未创建本轮提交、推送到 GitHub、触发 Streamlit Cloud 拉取新提交，也尚未用新 Demo 完成线上回归。只有这些外部步骤获得实际证据后才可改为 Complete。

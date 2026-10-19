@@ -155,15 +155,3 @@ def test_issue_ids_are_stable_and_tiny_thresholds_are_configurable(
     assert [issue.issue_id for issue in first] == [issue.issue_id for issue in second]
     assert first[0].annotation_line == 1
     assert first[0].bbox == (0.5, 0.5, 0.05, 0.05)
-
-
-def test_missing_labels_directory_produces_missing_label_issue(
-    tmp_path: Path,
-) -> None:
-    write_text(tmp_path / "data.yaml", "names: [cat]\n")
-    write_image(tmp_path / "train" / "images" / "negative.jpg")
-
-    issues = check_annotations(parse_yolo_dataset(tmp_path))
-
-    assert [issue.code for issue in issues] == [LABEL_MISSING]
-    assert issues[0].relative_path == "train/labels/negative.txt"

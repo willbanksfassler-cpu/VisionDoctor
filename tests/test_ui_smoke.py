@@ -45,9 +45,9 @@ def test_streamlit_entry_imports_with_exactly_four_tab_contract() -> None:
         "AI Doctor & Report",
     ]
     assert split_for_path("train/images/a.jpg") == "train"
-    assert split_for_path("images/val/a.jpg") == "val"
-    assert split_for_path("images/a.jpg") == "all"
-    assert split_for_path("README.md") == "unknown"
+    assert split_for_path("val/images/a.jpg") == "val"
+    assert split_for_path("test/labels/a.txt") == "test"
+    assert split_for_path("README.md") == "root"
 
 
 def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> None:

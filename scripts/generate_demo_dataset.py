@@ -32,15 +32,7 @@ def _random_image(rng: np.random.Generator, size: int = 400) -> np.ndarray:
 def _demo_members() -> dict[str, bytes]:
     rng = np.random.default_rng(SEED)
     members: dict[str, bytes] = {
-        "dataset/data.yaml": (
-            b"name: visiondoctor-demo\n"
-            b"path: .\n"
-            b"train: train/images\n"
-            b"val: val/images\n"
-            b"test: test/images\n"
-            b"nc: 3\n"
-            b"names: [common, rare, unused]\n"
-        ),
+        "dataset/data.yaml": b"name: visiondoctor-demo\nnames: [common, rare, unused]\n",
         "dataset/README.txt": b"Synthetic VisionDoctor demo dataset.\n",
         "packaging-note.md": b"Extra ZIP-root files are intentionally ignored.\n",
     }
