@@ -42,7 +42,7 @@ flowchart LR
 
 核心 Pipeline 与 Streamlit 解耦，不依赖数据库。LLM 只接收聚合统计、Issue 分组、分数、类别分布和少量代表性证据，不接收图片、完整标签或完整数据集。
 
-## 用大白话说明：VisionDoctor 怎么工作
+## VisionDoctor 工作流
 
 把 VisionDoctor 想成“训练前的数据集体检中心”。用户不用先训练模型，只要把符合约定目录的 YOLO Detection 数据集打成 ZIP，然后按下面这条链路操作：
 
@@ -68,7 +68,7 @@ flowchart LR
 | 建议是否可信？ | LLM 只能读取受限证据，数量、分数、Issue ID 和禁止性承诺会被二次校验；失败即回退。 |
 | 会不会自动改坏原数据？ | 不会。系统只读分析，修复影响也是内存中的假设预演。 |
 
-### 可用于答辩的创新点
+### 创新点
 
 - **检测和建议分层。** checker 负责事实，知识包和 Dataset Doctor 负责建议，避免把 LLM 说法伪装成检测结论。
 - **受控证据查询 Agent。** 仍然只有一个 Agent，但它不是一次性“看摘要说答案”，而是在轮数和字节上限内查询 8 个只读工具，再接受事实校验。
@@ -164,7 +164,7 @@ python scripts/smoke_test.py
 
 ## 可控缺陷 Benchmark
 
-阶段 10/11 的合成 Benchmark 由固定随机种子生成明确 Ground Truth，不从
+合成 Benchmark 由固定随机种子生成明确 Ground Truth，不从
 检测输出反推标签，也不下载互联网数据：
 
 ```powershell
@@ -198,7 +198,7 @@ Copy-Item .env.example .env
 
 证据查询模式提供 `get_dataset_summary`、`get_issue_group`、`get_representative_issues`、`get_class_distribution`、`get_score_component`、`get_duplicate_summary`、`get_split_leakage_summary` 和 `get_repair_simulations`。LLM 输出中的数值事实通过结构化 `evidence_claims` 声明；系统会确定性核对 Issue ID、数量、Health Score/扣分、类别实例、重复/泄漏组、finding severity、critical Issue 覆盖以及禁止性的 mAP 承诺或“已修改数据”声明。校验失败不会保留为 LLM 成功，而会记录脱敏失败阶段并回退。Provider 不支持工具协议时使用原有的受限一次性聚合 Prompt；这不是 Multi-Agent。
 
-阶段 13 只使用 fake/mock 客户端验证工具协议和校验回退，没有执行新的真实 DeepSeek 请求。README 中上段 2026-10-19 的实时验证是更早版本的独立历史事实，不能作为当前证据查询循环的远程兼容性证据。
+只使用 fake/mock 客户端验证工具协议和校验回退，没有执行新的真实 DeepSeek 请求。README 中上段 2026-10-19 的实时验证是更早版本的独立历史事实，不能作为当前证据查询循环的远程兼容性证据。
 
 ## 测试与静态检查
 
