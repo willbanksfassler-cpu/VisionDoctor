@@ -8,7 +8,13 @@ from collections import defaultdict
 from pathlib import Path
 
 from vision_doctor.config import DuplicateDetectionConfig
-from vision_doctor.models import DatasetManifest, DuplicateGroup, ImageRecord
+from vision_doctor.models import (
+    DatasetManifest,
+    DuplicateGroup,
+    ImageRecord,
+    Issue,
+    Severity,
+)
 from vision_doctor.utils.images import decode_image, hamming_distance, perceptual_hash
 
 
@@ -26,6 +32,30 @@ def _sha256(path: Path) -> str | None:
 def _group_id(kind: str, image_ids: list[str]) -> str:
     payload = json.dumps([kind, image_ids], separators=(",", ":"))
     return f"duplicate-{hashlib.sha256(payload.encode()).hexdigest()[:20]}"
+
+
+def _split_for_image_id(image_id: str) -> str:
+    first = image_id.replace("\\", "/").split("/", maxsplit=1)[0].casefold()
+    return first if first in {"train", "val", "test"} else "unknown"
+
+
+def _leakage_issue_id(group: DuplicateGroup) -> str:
+    payload = json.dumps(
+        [group.kind, sorted(group.image_ids)],
+        separators=(",", ":"),
+    )
+    return f"split-leakage-{hashlib.sha256(payload.encode()).hexdigest()[:20]}"
+
+
+def _leakage_representative(image_ids: list[str]) -> str:
+    split_rank = {"train": 0, "val": 1, "test": 2, "unknown": 3}
+    return min(
+        image_ids,
+        key=lambda image_id: (
+            split_rank[_split_for_image_id(image_id)],
+            image_id,
+        ),
+    )
 
 
 def _components(nodes: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
@@ -134,3 +164,62 @@ def find_duplicate_groups(
             )
         )
     return sorted(exact_groups + near_groups, key=lambda group: (group.kind, group.group_id))
+
+
+def check_split_leakage(duplicate_groups: list[DuplicateGroup]) -> list[Issue]:
+    """Emit one evidence-backed Issue for each cross-split duplicate group."""
+
+    issues: list[Issue] = []
+    for group in duplicate_groups:
+        image_ids = sorted(group.image_ids)
+        splits = sorted({_split_for_image_id(image_id) for image_id in image_ids})
+        known_splits = [split for split in splits if split != "unknown"]
+        if len(set(known_splits)) < 2:
+            continue
+        representative = _leakage_representative(image_ids)
+        exact = group.kind == "exact"
+        code = "SPLIT_LEAKAGE_EXACT" if exact else "SPLIT_LEAKAGE_NEAR"
+        message = (
+            "Byte-identical images occur across dataset splits and can leak "
+            "evaluation data."
+            if exact
+            else (
+                "Visually similar images occur across dataset splits; this is a "
+                "potential leakage candidate that requires human confirmation."
+            )
+        )
+        action = (
+            "Keep the image in only one split after confirming dataset provenance."
+            if exact
+            else (
+                "Review the image pair and provenance before deciding whether one "
+                "copy should be removed from an evaluation split."
+            )
+        )
+        metrics = {
+            "splits": known_splits,
+            "image_count": len(image_ids),
+            "duplicate_type": group.kind,
+            "hamming_distance": group.hamming_distance,
+            "pair_distances": group.pair_distances,
+            "image_ids": image_ids,
+        }
+        issues.append(
+            Issue(
+                issue_id=_leakage_issue_id(group),
+                code=code,
+                severity=Severity.ERROR if exact else Severity.WARNING,
+                message=message,
+                relative_path=representative,
+                image_id=representative,
+                metrics=metrics,
+                suggested_action=action,
+                evidence={
+                    "representative": representative,
+                    "image_ids": image_ids,
+                    "splits": known_splits,
+                    "duplicate_group_id": group.group_id,
+                },
+            )
+        )
+    return sorted(issues, key=lambda issue: (issue.code, issue.issue_id))

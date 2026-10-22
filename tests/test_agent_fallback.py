@@ -31,10 +31,15 @@ def test_no_key_pipeline_returns_complete_deterministic_diagnosis(
     assert str(report.health_score.overall) in diagnosis.summary
     assert diagnosis.priority_findings
     assert diagnosis.recommended_actions
+    assert diagnosis.evidence_claims
     assert len(diagnosis.caveats) >= 4
     assert any("mAP" in caveat for caveat in diagnosis.caveats)
-    assert any("negative samples" in caveat for caveat in diagnosis.caveats)
-    assert any("business distribution" in caveat for caveat in diagnosis.caveats)
+    assert any("合法负样本" in caveat for caveat in diagnosis.caveats)
+    assert any("真实业务分布" in caveat for caveat in diagnosis.caveats)
+    assert report.knowledge_guidance is not None
+    assert report.knowledge_guidance.profile_id.value == "generic"
+    assert any("当前场景知识包：generic" in item for item in diagnosis.caveats)
+    assert any("知识包 1.0.0；仅供参考" in item.description for item in diagnosis.recommended_actions)
 
     ordering = [
         (
@@ -46,6 +51,8 @@ def test_no_key_pipeline_returns_complete_deterministic_diagnosis(
     ]
     assert ordering == sorted(ordering, reverse=True)
     assert report.model_validate_json(report.model_dump_json()).diagnosis == diagnosis
+    assert report.diagnosis_mode == "deterministic_fallback"
+    assert report.diagnosis_failure_stage == "llm_disabled"
 
 
 def test_fallback_is_stable_for_the_same_audit(tmp_path: Path) -> None:

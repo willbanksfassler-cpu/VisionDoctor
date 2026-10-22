@@ -11,6 +11,12 @@ from vision_doctor.models import AuditReport, ImageRecord, Issue
 from vision_doctor.utils.images import render_archive_preview
 
 _KNOWN_SPLITS = {"train", "val", "valid", "validation", "test"}
+_SEVERITY_LABELS = {
+    "critical": "严重",
+    "error": "错误",
+    "warning": "警告",
+    "info": "提示",
+}
 
 
 def split_for_path(relative_path: str | None) -> str:
@@ -108,8 +114,11 @@ def _render_issue(
     issue: Issue,
     archive_path: Path | None,
 ) -> None:
-    path = issue.relative_path or "dataset-level"
-    with st.expander(f"{issue.severity.value.upper()} · {issue.code} · {path}"):
+    path = issue.relative_path or "数据集级别"
+    with st.expander(
+        f"{_SEVERITY_LABELS[issue.severity.value]} · {issue.code} · {path}"
+    ):
+        st.caption("检测器原始说明")
         st.write(issue.message)
         image = image_for_issue(report, issue)
         if image is not None and archive_path is not None:
@@ -120,47 +129,48 @@ def _render_issue(
                 bboxes=boxes,
             )
             if preview is None:
-                st.info("Image preview is unavailable; the structured evidence is still valid.")
+                st.info("图片无法预览，但结构化证据仍然有效。")
             else:
                 st.image(preview, caption=image.relative_path, use_container_width=True)
         elif issue.image_id or issue.relative_path:
-            st.info("No preview is available for this issue.")
+            st.info("该问题没有可用的图片预览。")
         details = {
-            "label_line": issue.annotation_line,
-            "bbox": issue.bbox,
-            "split": split_for_path(image.relative_path if image else path),
-            "classes": sorted(class_ids_for_issue(report, issue)),
-            "metrics": issue.metrics,
-            "thresholds": _threshold_metrics(issue),
-            "suggested_action": issue.suggested_action,
+            "标签行号": issue.annotation_line,
+            "边界框": issue.bbox,
+            "数据划分": split_for_path(image.relative_path if image else path),
+            "类别 ID": sorted(class_ids_for_issue(report, issue)),
+            "测量指标": issue.metrics,
+            "使用阈值": _threshold_metrics(issue),
+            "建议动作": issue.suggested_action,
         }
         st.json(details)
 
 
 def _render_duplicates(report: AuditReport, archive_path: Path | None) -> None:
-    st.subheader("Duplicate image groups")
+    st.subheader("重复图片组")
     if not report.duplicate_groups:
-        st.info("No exact or near-duplicate groups were detected.")
+        st.info("没有检测到完全重复或近似重复图片组。")
         return
     images = {image.image_id: image for image in report.manifest.images}
     for group in report.duplicate_groups:
         with st.expander(
-            f"{group.kind.title()} group · {len(group.image_ids)} images · {group.group_id}"
+            f"{group.kind.upper()} 组 · {len(group.image_ids)} 张图片 · {group.group_id}"
         ):
             st.caption(
-                f"Representative: {group.representative_image_id or 'not set'}; "
-                f"pHash distance: {group.hamming_distance if group.hamming_distance is not None else 'n/a'}"
+                f"代表图片：{group.representative_image_id or '未设置'}；"
+                "pHash 距离："
+                f"{group.hamming_distance if group.hamming_distance is not None else '不适用'}"
             )
             columns = st.columns(min(len(group.image_ids), 3))
             for index, image_id in enumerate(group.image_ids):
                 record = images.get(image_id)
                 with columns[index % len(columns)]:
                     if record is None or archive_path is None:
-                        st.info(f"Preview unavailable for {image_id}.")
+                        st.info(f"无法预览 {image_id}。")
                         continue
                     preview = render_archive_preview(archive_path, record.relative_path)
                     if preview is None:
-                        st.info(f"Preview unavailable for {record.relative_path}.")
+                        st.info(f"无法预览 {record.relative_path}。")
                     else:
                         st.image(
                             preview,
@@ -175,7 +185,7 @@ def render_issue_explorer(
 ) -> None:
     """Render filters, paginated issues, image evidence, and duplicate groups."""
 
-    st.subheader("Issue Explorer")
+    st.subheader("问题浏览器")
     filter_columns = st.columns(4)
     code_options = sorted({issue.code for issue in report.issues})
     severity_options = ["critical", "error", "warning", "info"]
@@ -192,15 +202,23 @@ def render_issue_explorer(
             *(class_ids_for_issue(report, issue) for issue in report.issues)
         )
     )
-    codes = set(filter_columns[0].multiselect("Code", code_options))
-    severities = set(filter_columns[1].multiselect("Severity", severity_options))
-    splits = set(filter_columns[2].multiselect("Split", sorted(split_options)))
+    codes = set(filter_columns[0].multiselect("问题代码", code_options))
+    selected_severity_labels = filter_columns[1].multiselect(
+        "严重程度",
+        [_SEVERITY_LABELS[item] for item in severity_options],
+    )
+    severities = {
+        value
+        for value, label in _SEVERITY_LABELS.items()
+        if label in selected_severity_labels
+    }
+    splits = set(filter_columns[2].multiselect("数据划分", sorted(split_options)))
     class_labels = {
-        class_id: f"{class_id}: {report.manifest.class_names.get(class_id, 'undeclared')}"
+        class_id: f"{class_id}: {report.manifest.class_names.get(class_id, '未声明')}"
         for class_id in class_options
     }
     selected_class_labels = filter_columns[3].multiselect(
-        "Class",
+        "类别",
         [class_labels[class_id] for class_id in class_options],
     )
     selected_classes = {
@@ -216,13 +234,13 @@ def render_issue_explorer(
         class_ids=selected_classes,
     )
     page_size = int(
-        st.number_input("Issues per page", min_value=5, max_value=50, value=10, step=5)
+        st.number_input("每页问题数", min_value=5, max_value=50, value=10, step=5)
     )
     page_count = max(1, math.ceil(len(filtered) / page_size))
     page = int(
-        st.number_input("Page", min_value=1, max_value=page_count, value=1, step=1)
+        st.number_input("页码", min_value=1, max_value=page_count, value=1, step=1)
     )
-    st.caption(f"Showing {len(filtered)} matching issue(s), page {page} of {page_count}.")
+    st.caption(f"共找到 {len(filtered)} 个匹配问题，当前第 {page}/{page_count} 页。")
     start = (page - 1) * page_size
     resolved_archive = Path(archive_path) if archive_path is not None else None
     for issue in filtered[start : start + page_size]:

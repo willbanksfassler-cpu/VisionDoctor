@@ -13,6 +13,8 @@ from scripts.generate_demo_dataset import generate_demo_zip
 from vision_doctor.agent.client import (
     DatasetDoctorClient,
     DiagnosisOutcome,
+    EvidenceToolCall,
+    EvidenceToolTurn,
     LLMFailureStage,
     OpenAICompatibleDatasetDoctorClient,
     diagnose_report,
@@ -47,6 +49,30 @@ class FakeClient:
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
+
+
+class FakeToolClient:
+    def __init__(self, turns: list[EvidenceToolTurn | dict[str, object]]) -> None:
+        self.turns = list(turns)
+        self.calls: list[dict[str, object]] = []
+
+    def complete_tool_turn(
+        self,
+        *,
+        messages: list[dict[str, object]],
+        tools: list[dict[str, object]],
+        model: str,
+        timeout_seconds: float,
+    ) -> EvidenceToolTurn | dict[str, object]:
+        self.calls.append(
+            {
+                "messages": messages,
+                "tools": tools,
+                "model": model,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return self.turns.pop(0)
 
 
 def _report(tmp_path: Path):
@@ -86,6 +112,7 @@ def test_valid_llm_json_is_accepted_and_prompt_is_minimized(tmp_path: Path) -> N
     assert diagnosis.generated_by == "llm"
     assert outcome.failure_stage is None
     assert outcome.live_api_verified is True
+    assert outcome.execution_mode == "one_shot"
     assert len(fake.calls) == 1
     call = fake.calls[0]
     system_prompt = str(call["system_prompt"])
@@ -102,8 +129,12 @@ def test_valid_llm_json_is_accepted_and_prompt_is_minimized(tmp_path: Path) -> N
         "health_score",
         "class_distribution",
         "duplicate_summary",
+        "knowledge_guidance",
         "representative_evidence",
     }
+    assert evidence["knowledge_guidance"]["profile_id"] == "generic"
+    assert evidence["knowledge_guidance"]["pack_schema_version"] == "1.0.0"
+    assert "advisory" in system_prompt.lower()
     assert len(evidence["representative_evidence"]) <= 5
     assert all("issue_id" in item for item in evidence["representative_evidence"])
     assert "images" not in evidence
@@ -278,6 +309,269 @@ def test_deepseek_adapter_sends_chat_json_request_to_fake_sdk() -> None:
     assert request["stream"] is False
     assert request["max_tokens"] == 4_000
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_adapter_normalizes_fake_sdk_tool_call() -> None:
+    requests: list[dict[str, object]] = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=None,
+                            tool_calls=[
+                                SimpleNamespace(
+                                    id="call-1",
+                                    function=SimpleNamespace(
+                                        name="get_score_component",
+                                        arguments='{"component":"image"}',
+                                    ),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            )
+
+    adapter = OpenAICompatibleDatasetDoctorClient(
+        "unit-test-key",
+        provider="deepseek",
+        base_url="https://api.deepseek.com",
+        max_retries=0,
+        sdk_factory=lambda **kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        ),
+    )
+    turn = adapter.complete_tool_turn(
+        messages=[{"role": "user", "content": "query"}],
+        tools=[{"type": "function", "function": {"name": "tool"}}],
+        model="deepseek-flash",
+        timeout_seconds=12,
+    )
+
+    assert turn.tool_calls[0].name == "get_score_component"
+    assert turn.tool_calls[0].arguments_json == '{"component":"image"}'
+    assert requests[0]["tool_choice"] == "auto"
+    assert requests[0]["response_format"] == {"type": "json_object"}
+
+
+def test_tool_query_loop_executes_bounded_read_only_call_then_accepts_json(
+    tmp_path: Path,
+) -> None:
+    report = _report(tmp_path)
+    payload = json.loads(_valid_llm_json())
+    payload["evidence_claims"] = [
+        {
+            "claim_type": "score_penalty",
+            "metric_name": "image",
+            "claimed_value": report.health_score.penalties["image"],
+            "source_tool": "get_score_component",
+            "related_issue_ids": [],
+            "classification": "fact",
+        }
+    ]
+    fake = FakeToolClient(
+        [
+            EvidenceToolTurn(
+                tool_calls=[
+                    EvidenceToolCall(
+                        call_id="call-1",
+                        name="get_score_component",
+                        arguments_json='{"component":"image"}',
+                    )
+                ]
+            ),
+            EvidenceToolTurn(content=json.dumps(payload)),
+        ]
+    )
+
+    outcome = diagnose_report_with_status(
+        report,
+        _enabled_config(),
+        client=fake,
+    )
+
+    assert outcome.diagnosis.generated_by == "llm"
+    assert outcome.failure_stage is None
+    assert outcome.execution_mode == "evidence_query"
+    assert len(fake.calls) == 2
+    second_messages = fake.calls[1]["messages"]
+    assert any(message["role"] == "tool" for message in second_messages)
+    tool_message = next(
+        message for message in second_messages if message["role"] == "tool"
+    )
+    assert json.loads(tool_message["content"])["component"] == "image"
+    assert "raw_line" not in tool_message["content"]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_stage"),
+    [
+        (
+            EvidenceToolCall(
+                call_id="unknown",
+                name="run_command",
+                arguments_json="{}",
+            ),
+            LLMFailureStage.UNKNOWN_TOOL,
+        ),
+        (
+            EvidenceToolCall(
+                call_id="bad-args",
+                name="get_score_component",
+                arguments_json='{"component":"invalid"}',
+            ),
+            LLMFailureStage.TOOL_ARGUMENT_ERROR,
+        ),
+    ],
+)
+def test_unknown_tool_or_invalid_arguments_use_sanitized_fallback(
+    tmp_path: Path,
+    call: EvidenceToolCall,
+    expected_stage: LLMFailureStage,
+) -> None:
+    outcome = diagnose_report_with_status(
+        _report(tmp_path),
+        _enabled_config(),
+        client=FakeToolClient([EvidenceToolTurn(tool_calls=[call])]),
+    )
+
+    assert outcome.failure_stage is expected_stage
+    assert outcome.diagnosis.generated_by == "deterministic"
+
+
+def test_tool_round_limit_uses_fallback(tmp_path: Path) -> None:
+    call = EvidenceToolCall(
+        call_id="call-1",
+        name="get_dataset_summary",
+        arguments_json="{}",
+    )
+    second_call = call.model_copy(update={"call_id": "call-2"})
+    config = _enabled_config().model_copy(update={"max_tool_rounds": 1})
+
+    outcome = diagnose_report_with_status(
+        _report(tmp_path),
+        config,
+        client=FakeToolClient(
+            [
+                EvidenceToolTurn(tool_calls=[call]),
+                EvidenceToolTurn(tool_calls=[second_call]),
+            ]
+        ),
+    )
+
+    assert outcome.failure_stage is LLMFailureStage.TOOL_ROUND_LIMIT
+    assert outcome.diagnosis.generated_by == "deterministic"
+
+
+def test_malformed_tool_protocol_uses_fallback(tmp_path: Path) -> None:
+    fake = FakeToolClient(
+        [
+            {
+                "content": None,
+                "tool_calls": [{"unexpected": "provider-shape"}],
+            }
+        ]
+    )
+
+    outcome = diagnose_report_with_status(
+        _report(tmp_path),
+        _enabled_config(),
+        client=fake,
+    )
+
+    assert outcome.failure_stage is LLMFailureStage.TOOL_PROTOCOL_ERROR
+    assert outcome.diagnosis.generated_by == "deterministic"
+
+
+def test_total_evidence_and_per_result_limits_use_fallback(tmp_path: Path) -> None:
+    call = EvidenceToolCall(
+        call_id="large",
+        name="get_representative_issues",
+        arguments_json='{"limit":10}',
+    )
+    total_limited = _enabled_config().model_copy(
+        update={"max_total_evidence_bytes": 1024}
+    )
+    result_limited = _enabled_config().model_copy(
+        update={"max_tool_result_bytes": 1024}
+    )
+
+    total_outcome = diagnose_report_with_status(
+        _report(tmp_path),
+        total_limited,
+        client=FakeToolClient([EvidenceToolTurn(tool_calls=[call])]),
+    )
+    result_outcome = diagnose_report_with_status(
+        _report(tmp_path),
+        result_limited,
+        client=FakeToolClient([EvidenceToolTurn(tool_calls=[call])]),
+    )
+
+    assert total_outcome.failure_stage is LLMFailureStage.EVIDENCE_LIMIT_EXCEEDED
+    assert result_outcome.failure_stage is LLMFailureStage.EVIDENCE_LIMIT_EXCEEDED
+
+
+def test_fact_mismatch_and_prohibited_claims_fall_back(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    incorrect = json.loads(_valid_llm_json())
+    incorrect["evidence_claims"] = [
+        {
+            "claim_type": "health_score",
+            "metric_name": "overall",
+            "claimed_value": 99.9,
+            "source_tool": "get_score_component",
+            "classification": "fact",
+        }
+    ]
+    incorrect_count = json.loads(_valid_llm_json())
+    incorrect_count["evidence_claims"] = [
+        {
+            "claim_type": "dataset_count",
+            "metric_name": "image_count",
+            "claimed_value": 999,
+            "source_tool": "get_dataset_summary",
+            "classification": "fact",
+        }
+    ]
+    promise = json.loads(_valid_llm_json())
+    promise["summary"] = "We guarantee this repair will improve mAP."
+    modified = json.loads(_valid_llm_json())
+    modified["summary"] = "VisionDoctor already modified the labels."
+
+    mismatch = diagnose_report_with_status(
+        report,
+        _enabled_config(),
+        client=FakeClient(json.dumps(incorrect)),
+    )
+    count_mismatch = diagnose_report_with_status(
+        report,
+        _enabled_config(),
+        client=FakeClient(json.dumps(incorrect_count)),
+    )
+    prohibited = diagnose_report_with_status(
+        report,
+        _enabled_config(),
+        client=FakeClient(json.dumps(promise)),
+    )
+    modification_claim = diagnose_report_with_status(
+        report,
+        _enabled_config(),
+        client=FakeClient(json.dumps(modified)),
+    )
+
+    assert mismatch.failure_stage is LLMFailureStage.FACT_CLAIM_MISMATCH
+    assert count_mismatch.failure_stage is LLMFailureStage.FACT_CLAIM_MISMATCH
+    assert prohibited.failure_stage is (
+        LLMFailureStage.PROHIBITED_PERFORMANCE_PROMISE
+    )
+    assert modification_claim.failure_stage is LLMFailureStage.DATA_MODIFICATION_CLAIM
+    assert mismatch.diagnosis.generated_by == "deterministic"
+    assert prohibited.diagnosis.generated_by == "deterministic"
+    assert modification_claim.diagnosis.generated_by == "deterministic"
 
 
 def test_adapter_empty_content_maps_to_empty_response_stage(tmp_path: Path) -> None:

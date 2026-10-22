@@ -1,0 +1,132 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDirectory, "..");
+const destination = path.join(
+  projectRoot,
+  "src",
+  "vision_doctor",
+  "ui",
+  "theme.css",
+);
+
+const css = String.raw`
+:root {
+  --vd-ink: #17243a;
+  --vd-muted: #617086;
+  --vd-blue: #2457d6;
+  --vd-teal: #0f8b7a;
+  --vd-border: #dfe7f2;
+  --vd-surface: rgba(255, 255, 255, 0.94);
+}
+
+.stApp {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(36, 87, 214, 0.09), transparent 28rem),
+    linear-gradient(180deg, #f8fbff 0%, #f4f7fb 48%, #eef3f8 100%);
+  color: var(--vd-ink);
+}
+
+.block-container {
+  max-width: 1180px;
+  padding-top: 2rem;
+  padding-bottom: 4rem;
+}
+
+h1, h2, h3, h4 {
+  color: var(--vd-ink);
+  letter-spacing: -0.02em;
+}
+
+[data-testid="stCaptionContainer"] {
+  color: var(--vd-muted);
+}
+
+[data-testid="stMetric"] {
+  min-height: 112px;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--vd-border);
+  border-radius: 16px;
+  background: var(--vd-surface);
+  box-shadow: 0 8px 26px rgba(31, 49, 82, 0.07);
+}
+
+[data-testid="stMetricValue"] {
+  color: var(--vd-blue);
+  font-weight: 700;
+}
+
+[data-baseweb="tab-list"] {
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--vd-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+[data-baseweb="tab"] {
+  min-height: 44px;
+  padding-inline: 1rem;
+  border-radius: 10px;
+}
+
+[aria-selected="true"][data-baseweb="tab"] {
+  background: #eaf0ff;
+  color: var(--vd-blue);
+}
+
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stExpander"],
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--vd-border);
+  border-radius: 14px;
+  background: var(--vd-surface);
+}
+
+.stButton > button,
+.stDownloadButton > button {
+  min-height: 42px;
+  border-radius: 10px;
+  font-weight: 650;
+}
+
+.stButton > button[kind="primary"] {
+  border-color: var(--vd-blue);
+  background: var(--vd-blue);
+}
+
+.stAlert {
+  border-radius: 12px;
+}
+
+@media (max-width: 720px) {
+  .block-container {
+    padding: 1rem 0.85rem 3rem;
+  }
+
+  [data-baseweb="tab-list"] {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  [data-testid="stMetric"] {
+    min-height: 92px;
+  }
+}
+`.trimStart();
+
+const normalized = `${css.trimEnd()}\n`;
+if (process.argv.includes("--check")) {
+  const current = fs.readFileSync(destination, "utf8").replaceAll("\r\n", "\n");
+  if (current !== normalized) {
+    console.error("theme.css 与 Node.js 生成结果不一致");
+    process.exitCode = 1;
+  } else {
+    console.log("theme.css 校验通过");
+  }
+} else {
+  fs.writeFileSync(destination, normalized, "utf8");
+  console.log(`已生成 ${destination}`);
+}

@@ -1,0 +1,63 @@
+schema_version: "1.0.0"
+profile_id: retail_detection
+display_name: 零售商品检测
+applicable_issue_codes:
+  - LABEL_MISSING
+  - LABEL_EMPTY
+  - LABEL_PARSE_ERROR
+  - CLASS_ID_INVALID
+  - BBOX_TINY
+  - BBOX_AREA_OUTLIER
+  - BBOX_ASPECT_RATIO_OUTLIER
+  - IMAGE_UNREADABLE
+  - IMAGE_BLURRY
+  - IMAGE_DARK
+  - IMAGE_BRIGHT
+  - IMAGE_LOW_RESOLUTION
+  - SPLIT_LEAKAGE_EXACT
+  - SPLIT_LEAKAGE_NEAR
+review_guidance:
+  - guidance_id: retail-taxonomy-review
+    title: 确认商品分类规则
+    guidance: 合并、重新标注或删除样本前，对照已确认的商品层级和歧义处理规则检查标签问题。
+    applicable_issue_codes: [LABEL_MISSING, LABEL_EMPTY, LABEL_PARSE_ERROR, CLASS_ID_INVALID]
+    evidence_signals: []
+    requires_human_confirmation: true
+  - guidance_id: retail-shelf-bbox-review
+    title: 复核密集货架边界框规则
+    guidance: 按项目对遮挡、截断、组合包装和外观相似商品的规则复核边界框候选。
+    applicable_issue_codes: [BBOX_TINY, BBOX_AREA_OUTLIER, BBOX_ASPECT_RATIO_OUTLIER]
+    evidence_signals: [bbox_statistics]
+    requires_human_confirmation: true
+  - guidance_id: retail-store-condition-review
+    title: 复核门店与采集条件
+    guidance: 先按门店、设备、视角和光照环境汇总图片质量候选，再判断图片是否不可用。
+    applicable_issue_codes: [IMAGE_UNREADABLE, IMAGE_BLURRY, IMAGE_DARK, IMAGE_BRIGHT, IMAGE_LOW_RESOLUTION]
+    evidence_signals: [image_quality]
+    requires_human_confirmation: true
+  - guidance_id: retail-scene-leakage
+    title: 检查场景级数据泄漏
+    guidance: 确认跨 split 匹配是否来自同一货架、视频、连拍或门店访问，包括近似重复帧。
+    applicable_issue_codes: [SPLIT_LEAKAGE_EXACT, SPLIT_LEAKAGE_NEAR]
+    evidence_signals: [split_leakage]
+    requires_human_confirmation: true
+  - guidance_id: retail-assortment-distribution
+    title: 将类别分布与商品范围对照
+    guidance: 将稀有和缺失类别与预期商品范围、地区和采集时间对照，不要把所有不平衡都认定为错误。
+    applicable_issue_codes: []
+    evidence_signals: [class_distribution, repair_simulation]
+    requires_human_confirmation: true
+recommended_questions:
+  - 标签体系是否区分了外观容易混淆的商品变体？
+  - 数据划分是否隔离了门店、访问、视频或连拍序列？
+  - 稀有类别是否符合预期商品范围？
+  - 哪些图片质量变化属于真实部署环境？
+caveats:
+  - 本知识包是项目编写的通用零售指导，不保证销量、准确率或部署性能。
+  - 商品分类和经营范围假设必须由业务负责人确认。
+source: VisionDoctor 项目编写的零售检测指导。
+provenance:
+  source_type: general_guidance
+  source_name: VisionDoctor 零售检测知识包
+  source_reference: 仅为通用复核指导，不包含零售商数据、专有分类体系或外部性能声明。
+  evidence_level: general_guidance

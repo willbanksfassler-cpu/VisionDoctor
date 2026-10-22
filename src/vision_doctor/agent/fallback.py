@@ -7,6 +7,7 @@ from collections import defaultdict
 from vision_doctor.models import (
     AuditReport,
     Diagnosis,
+    EvidenceClaim,
     Issue,
     PriorityFinding,
     RecommendedAction,
@@ -43,14 +44,29 @@ def _risk_level(report: AuditReport) -> str:
     return "low"
 
 
-def _action_for(code: str) -> str:
+def _action_for(code: str, report: AuditReport) -> str:
+    knowledge = report.knowledge_guidance
+    if knowledge is not None:
+        entry = next(
+            (
+                item
+                for item in knowledge.guidance_entries
+                if code in item.applicable_issue_codes
+            ),
+            None,
+        )
+        if entry is not None:
+            return (
+                f"场景指导（{knowledge.profile_id.value}，知识包 "
+                f"{knowledge.pack_schema_version}；仅供参考）：{entry.guidance}"
+            )
     if code.startswith("LABEL_") or code == "CLASS_ID_INVALID":
-        return "Review the referenced labels and correct only after human confirmation."
+        return "对照原图复核相关标签，只有在人工确认后再进行修改。"
     if code.startswith("BBOX_"):
-        return "Review bounding boxes against source images before correcting labels."
+        return "对照原图检查边界框，确认后再修改标签。"
     if code.startswith("IMAGE_"):
-        return "Inspect source image quality and replace or re-export when appropriate."
-    return "Review the evidence and decide whether remediation matches dataset intent."
+        return "检查源图片质量，再决定是否替换或重新导出。"
+    return "复核检测证据，并判断处理方式是否符合数据集的真实用途。"
 
 
 def build_fallback_diagnosis(report: AuditReport) -> Diagnosis:
@@ -83,16 +99,15 @@ def build_fallback_diagnosis(report: AuditReport) -> Diagnosis:
                 rank=rank,
                 title=code,
                 rationale=(
-                    f"Observed {len(members)} {code} issue(s) affecting "
-                    f"{affected} distinct item(s)."
+                    f"检测到 {len(members)} 个 {code} 问题，"
+                    f"影响 {affected} 个不同对象。"
                 ),
                 severity=severity,
                 issue_ids=issue_ids,
                 affected_count=affected,
                 score_penalty=penalty,
                 inference=(
-                    "This may reduce dataset usability, but impact on model performance "
-                    "has not been measured."
+                    "这可能影响数据集可用性，但目前没有真实模型效果测量证据。"
                 ),
                 needs_human_confirmation=True,
             )
@@ -101,28 +116,66 @@ def build_fallback_diagnosis(report: AuditReport) -> Diagnosis:
             RecommendedAction(
                 action_id=f"fallback-action-{rank}-{code.lower()}",
                 priority=rank,
-                title=f"Review {code}",
-                description=_action_for(code),
+                title=f"复核 {code}",
+                description=_action_for(code, report),
                 related_issue_ids=issue_ids,
                 estimated_effort="medium",
             )
         )
 
     level = _risk_level(report)
+    level_label = {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "critical": "严重",
+    }[level]
+    knowledge_caveats: list[str] = []
+    if report.knowledge_guidance is not None:
+        knowledge = report.knowledge_guidance
+        knowledge_caveats = [
+            knowledge.advisory_notice,
+            (
+                f"当前场景知识包：{knowledge.profile_id.value}；"
+                f"版本：{knowledge.pack_schema_version}。"
+            ),
+            *[
+                f"人工复核问题：{question}"
+                for question in knowledge.recommended_questions[:2]
+            ],
+            *knowledge.caveats[:2],
+        ]
     return Diagnosis(
         generated_by="deterministic",
         risk_level=level,
         summary=(
-            f"Dataset health score is {report.health_score.overall:.2f}/100 "
-            f"(grade {report.health_score.grade}); deterministic risk level is {level}."
+            f"数据集健康分为 {report.health_score.overall:.2f}/100（等级 "
+            f"{report.health_score.grade}），确定性风险级别为{level_label}。"
         ),
         priority_findings=findings,
         recommended_actions=actions,
+        evidence_claims=[
+            EvidenceClaim(
+                claim_type="health_score",
+                metric_name="overall",
+                claimed_value=report.health_score.overall,
+                source_tool="get_score_component",
+                classification="fact",
+            ),
+            EvidenceClaim(
+                claim_type="dataset_count",
+                metric_name="issue_count",
+                claimed_value=len(report.issues),
+                source_tool="get_dataset_summary",
+                classification="fact",
+            ),
+        ],
         caveats=[
-            "This diagnosis uses deterministic heuristics and observed audit evidence only.",
-            "No repair is guaranteed to improve mAP or any other model metric.",
-            "Empty labels may be valid negative samples and require human confirmation.",
-            "Class imbalance may reflect the intended business distribution.",
-            "No source image or label was modified.",
+            "本诊断只使用确定性规则和已观察到的体检证据。",
+            "任何修复都不保证提升 mAP 或其他模型指标。",
+            "空标签可能是合法负样本，需要人工确认。",
+            "类别不平衡可能符合真实业务分布。",
+            "系统没有修改任何源图片或标签。",
+            *knowledge_caveats,
         ],
     )

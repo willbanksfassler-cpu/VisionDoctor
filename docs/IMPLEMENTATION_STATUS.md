@@ -1,6 +1,6 @@
 # VisionDoctor 实施状态
 
-> 最后更新：2026-10-17（Asia/Shanghai）
+> 最后更新：2026-10-22（Asia/Shanghai）
 > 本文件只记录已观察到的事实。计划中的目录或能力不视为已经实现。
 
 ## 1. 仓库基线
@@ -20,9 +20,9 @@
 
 ## 2. 当前阶段
 
-**阶段 9：Complete**
+**阶段 16：Complete（阶段 15 可选视觉模块未实现、未验证）**
 
-本地交付验收已完成：确定性 Demo 可生成，Smoke Test、94 项自动化测试、全仓 Ruff、compileall 和 Git whitespace 检查均通过；Streamlit 服务实际返回 HTTP 200 后已停止。README 已与真实命令、范围、安全边界和部署前步骤对齐。仓库仍没有提交、远程地址或线上部署，因此“本地代码可进入提交步骤”不等于已有可提交的 GitHub 仓库 URL 或 Demo URL。
+阶段 10–14 的 Benchmark、稳健统计、Score Profile、修复预演、证据查询 Agent、事实校验和知识库已完成全量验收；quick/standard 合成 Benchmark 均为 20 个评估 code、micro/macro P/R/F1=1.0，完整测试 156 项通过。阶段 15 的可选视觉模型/embedding 离群模块在实时仓库中不存在，明确记录为未实现、未验证，未计为 pass。Demo 界面已改为简体中文，并由 Node.js 生成器维护静态 CSS；基础 Pipeline 不依赖 Node 或视觉模型。本阶段未调用真实 API，也未 commit、push 或部署，阶段 10–16 改动仍在本地工作树。
 
 ## 3. 阶段状态
 
@@ -38,6 +38,13 @@
 | 阶段 7 | JSON 与 HTML 报告 | Complete | JSON round-trip、HTML 安全转义、三种 diagnosis 状态及完整回归已通过。 |
 | 阶段 8 | Streamlit Demo 与端到端集成 | Complete | 四标签页面、临时上传、Dashboard、Issue Explorer、Doctor 和报告下载已验证。 |
 | 阶段 9 | README、全量质量检查与交付验收 | Complete | 本地质量门禁全部通过；外部 GitHub 推送和 Streamlit Cloud 部署留给用户执行。 |
+| 阶段 10 | 可控缺陷 Benchmark 与检测效果量化 | Complete | 可重复 Ground Truth、位置级指标和 quick 真实 Pipeline 评估已通过。 |
+| 阶段 11 | 跨 split 泄漏、自适应阈值与 bbox 离群 | Complete | 新检查器、固定模式兼容、adaptive 回退与扩展 Benchmark 已通过。 |
+| 阶段 12 | Health Score 校准与修复影响预演 | Complete | legacy-v1 兼容、候选校准门槛、单调性验证及纯内存 what-if 报告已通过。 |
+| 阶段 13 | 证据查询型 Dataset Doctor 与事实校验 | Complete | 单 Agent 只读证据循环、结构化事实校验、脱敏回退及完整回归已通过 mock 验证。 |
+| 阶段 14 | 场景化数据质量知识库与安全检索 | Complete | 四个版本化知识包、固定枚举加载、有限检索、报告分层及无 Key 场景建议已通过。 |
+| 阶段 15 | 可选视觉离群模块 | Not started | 实时仓库没有视觉模型、embedding backend、对应接口或测试；没有把缺失模块或 skipped 项记为通过。 |
+| 阶段 16 | 技术先进性增强的全量验收 | Complete | quick/standard、校准、Agent、知识库、全量回归和本地 Streamlit 启动均有真实证据；可选视觉模块保持未验证。 |
 
 ## 4. 实际修改文件
 
@@ -911,3 +918,398 @@
 - 线上 JSON 和 HTML 均实际下载成功。JSON 为 34,612 字节，通过 `AuditReport.model_validate_json`，schema 为 `1.0.0`、15 张图片、14 个 Issue、`generated_by=deterministic`；HTML 为 15,488 字节，包含文档声明与 Health Score，未发现 Windows 本机路径或常见 Key/Authorization 模式。
 - 浏览器日志未出现 error；仅有两条 Vega 离散轴 scale-binding 警告，不影响页面或分析结果。
 - 本轮阶段状态为 **Complete**：实现、本地质量门禁、真实 DeepSeek 请求、提交、push、云端更新、新 Demo 在线分析及报告下载均有实际证据。`.env`、API Key、`.venv`、上传数据和生成 Demo ZIP 未进入提交，没有 force push、数据库或额外产品功能。
+
+## 24. 阶段 10：可控缺陷 Benchmark 与检测效果量化（2026-10-22）
+
+### 24.1 实时基线
+
+- 开始时分支为 `main`，工作区干净，最新提交为 `d36ff7e Record split-first deployment verification`；项目目录及上级未发现适用的 `AGENTS.md`。
+- 修改前 `python --version` 为 Python 3.11.7；Demo 生成和 Smoke Test 通过，Smoke Test 仍为 15 张图片、14 个 Issue、12 种预期 Issue code、exact/near 重复组、Health Score 61.93/D。
+- 修改前完整测试为 105 passed in 35.51s，`python -m ruff check .` 为 `All checks passed!`。基线没有失败项。
+
+### 24.2 实际变更与 Ground Truth 定义
+
+- 新增 `src/vision_doctor/evaluation.py`，定义版本化 Ground Truth、按 code 的 TP/FP/FN、Precision/Recall/F1、micro/macro 平均、未匹配原因、运行时间和 `tracemalloc` Python 峰值内存结果结构。
+- 产品 Issue 的匹配键为 `issue code + 规范化 relative_path + annotation_line`，不使用 Issue 数量代替证据匹配。exact/near duplicate 以 kind 和完整排序成员集合匹配。
+- `DUPLICATE_EXACT`、`DUPLICATE_NEAR` 和 `CLASS_IMBALANCE` 仅为 Benchmark 派生信号名，不是新增的产品 `Issue.code`。类别失衡同时核对已注入的每类实例数、稀有类、零实例类和最小 imbalance index。
+- 新增确定性生成脚本和运行脚本。生成器先创建干净 YOLO Detection 数据集，再复制并注入缺陷；固定 ZIP 时间戳、成员顺序和随机种子，不下载互联网数据。
+- 实际覆盖 13 个产品 Issue code：`LABEL_MISSING`、`LABEL_EMPTY`、`LABEL_PARSE_ERROR`、`CLASS_ID_INVALID`、`BBOX_NON_POSITIVE`、`BBOX_OUT_OF_RANGE`、`BBOX_CROSSES_BORDER`、`BBOX_TINY`、`IMAGE_UNREADABLE`、`IMAGE_BLURRY`、`IMAGE_DARK`、`IMAGE_BRIGHT`、`IMAGE_LOW_RESOLUTION`；另覆盖 exact duplicate、near duplicate 和 class imbalance。
+- 提供 `quick=40`、`standard=160`、`scale=800` 三个入口；普通 pytest 只执行 quick，scale 不会自动执行。生成物写入被 `.gitignore` 忽略的 `benchmarks/generated/`。
+- 新增 `benchmarks/README.md` 和 6 项测试，覆盖同 seed 的 ZIP/Ground Truth 可重复性、TP/FP/FN、micro/macro、零除、路径与行号、重复组成员、JSON round-trip，以及 quick profile 调用真实 Pipeline。
+- 本阶段没有修改 Parser、任何生产 checker、Health Score、Agent、报告或 UI，也没有调用外部 API。
+
+### 24.3 quick Benchmark 真实结果
+
+- 最终验证使用 profile `quick`、seed `20261022`、40 张合成图片。
+- 13 个产品 Issue code、2 个重复信号和 1 个类别失衡信号均为 TP=1、FP=0、FN=0；micro Precision/Recall/F1 均为 1.000000，macro Precision/Recall/F1 均为 1.000000，未匹配项为 0。
+- 注入类别计数为 class 0=`32`、class 1=`1`、class 2=`0`；稀有类 `[1]`、零实例类 `[2]` 与 Pipeline 输出一致。
+- Pipeline 总耗时为 1.568137 秒，平均每张图片 0.039203 秒；`tracemalloc` Python 峰值为 6,364,370 bytes。
+- 内存数字只反映 Python 管理的分配，不包含 NumPy、Pillow、OpenCV 等 native library 的全部内存；耗时也是当前单机单次运行，不是稳定性或并发基准。
+
+### 24.4 实际验证命令
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 开发中首次聚焦 `ruff check` | 失败：发现 11 个新代码风格问题（无效 `noqa`、集合中的隐式字符串拼接和冗余联合类型）；全部在本阶段新增文件内修复，随后聚焦 Ruff 与全量 Ruff 均通过。 |
+| `python scripts/generate_demo_dataset.py` | 通过，退出码 0；重新生成被 Git 忽略的 Demo ZIP。 |
+| `python scripts/smoke_test.py` | 通过，退出码 0；15 张图片、14 个 Issue、Health Score 61.93/D。 |
+| `python scripts/run_corruption_benchmark.py --profile quick` | 通过，退出码 0；40 张图片，micro/macro P/R/F1 均为 1.0，0 个未匹配项，类别分布匹配 Ground Truth。 |
+| `python -m pytest -q tests/test_evaluation.py` | 通过：6 passed in 7.96s。 |
+| `python -m pytest -q` | 通过：111 passed in 40.70s；0 failed。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0。 |
+| `git diff --check` | 通过，退出码 0；Windows 仅提示工作区 LF 将来可能转为 CRLF，不是 whitespace error。 |
+| `git status --short` | 仅包含本阶段允许范围内的 `.gitignore`、状态文档及新增 Benchmark 源码、脚本、说明和测试；生成 ZIP/结果未出现。 |
+
+### 24.5 未验证事项、限制与阶段结论
+
+- `standard` 和 `scale` 入口已实现但本阶段未执行，因此没有声称其运行时间、内存或准确率已经验证；scale 仍受当前 pHash 两两比较 O(n²) 的实现限制。
+- 当前 1.0 指标只说明现有检查器准确恢复了这些确定性的合成注入；没有使用真实业务数据，未验证跨领域泛化、真实误报率、真实漏报率、训练效果或修复后的 mAP。
+- Ground Truth 由注入计划直接生成，不从 VisionDoctor 检测输出反推。意外的相关启发式输出会作为 FP 保留，不会为了提高指标而修改生产规则或删除结果。
+- 阶段 10 状态为 **Complete**。可进入下一阶段，但下一阶段开始前必须重新检查实时 Git 状态、重跑完整测试与 quick Benchmark，并继续把合成指标和真实业务证据明确区分。
+
+## 25. 阶段 11：跨 Split 泄漏、自适应阈值与 bbox 离群（2026-10-22）
+
+### 25.1 实时基线
+
+- 开始时分支为 `main`，最新提交仍为 `d36ff7e`；阶段 10 的 `.gitignore`、状态文档和 Benchmark 新文件尚未提交，但内容完整，生成物继续被忽略。项目目录及上级未发现适用的 `AGENTS.md`。
+- 开始前 `python -m pytest -q` 通过：111 passed in 52.71s；`python scripts/run_corruption_benchmark.py --profile quick` 通过，阶段 10 基线仍为 micro/macro F1=1.0、0 个未匹配项。
+- 阶段 10 状态文件真实记录为 Complete，因而满足阶段 11 开始条件。本阶段没有覆盖或撤销用户已有的未提交工作。
+
+### 25.2 新增检查能力
+
+- 新增 `SPLIT_LEAKAGE_EXACT` 和 `SPLIT_LEAKAGE_NEAR`。检测直接复用现有 SHA-256/pHash `DuplicateGroup`；只有完整重复组涉及至少两个已知 split 时才生成一条稳定 Issue，同 split 重复仍保留原组但不产生泄漏 Issue。
+- exact 跨 split 默认为 error，描述为字节相同的泄漏风险；near 默认为 warning，明确写为“potential leakage candidate”，不把视觉相似直接断言为确定泄漏。metrics 包含 split、图片数、duplicate type、hamming distance、pair distances 和相对数据集根的成员路径。
+- 新增 `BBOX_AREA_OUTLIER` 和 `BBOX_ASPECT_RATIO_OUTLIER`，均为 warning 且要求人工确认。只使用 Parser 已接受的合法 bbox，按 class 分组，默认每类至少 10 个样本。
+- bbox 统计在 log(area) 和 log(width/height) 上计算 class median；优先使用 `1.4826 × MAD`，MAD 为零时使用 `IQR / 1.349`，robust z 阈值为 3.5。MAD 与 IQR 都为零时，只把与中位数相差至少 `ln(4)` 的候选标记为离群。Issue 记录 class ID、样本数、中位数、MAD/IQR、离群分数、阈值和方法。
+- bbox 统计是类别内模型，因此一个合法、整体偏小但内部一致的小目标类别不会因为与其他类别尺寸不同而被标记；样本不足时不输出离群结论。
+
+### 25.3 自适应图片质量阈值
+
+- `ImageQualityThresholds.mode` 支持 `fixed` 与 `adaptive`，默认仍为 `fixed`，因此没有静默改变既有默认阈值。UI 的 Audit thresholds 中可以显式选择模式。
+- adaptive 只使用同 split 内成功解码的图片；损坏图片产生 `IMAGE_UNREADABLE`，但不进入标定且不阻断其他图片。
+- 每个 split 分别对亮度、Laplacian variance 和最小边长计算 median、MAD 与 IQR。低侧阈值为 `median - 3.5 × robust_scale`，高侧阈值为 `median + 3.5 × robust_scale`；`robust_scale` 优先为 `1.4826 × MAD`，否则为 `IQR / 1.349`。
+- 自适应结果受配置的安全上下限约束：blur 20–200、dark 15–80、bright 175–245、最小边长 128–1024，避免污染样本把阈值推向无界值。
+- 每 split 默认至少需要 12 张可解码图片；不足时 `threshold_source=fixed_fallback_insufficient_samples`。MAD/IQR 均为零时使用 `fixed_fallback_zero_dispersion`。所有图片质量 Issue 均记录 `measured_value`、`fixed_threshold`、`adaptive_threshold`、`effective_threshold`、`threshold_source` 和 `sample_count`；不可读图片的阈值字段明确为不适用。
+
+### 25.4 Benchmark 变化与真实结果
+
+- 因本阶段允许列表没有包含阶段 10 的生成器，未修改 `scripts/generate_corruption_benchmark.py`；允许修改的运行脚本在生成后以固定 ZIP 元数据确定性地扩展 corrupted archive 和 Ground Truth。
+- quick Ground Truth 现包含跨 split exact、跨 split near、2 个面积离群证据（新增面积注入及原有 tiny 框的统计证据）和 1 个长宽比离群证据。fixed/adaptive 使用同一份显式 Ground Truth，比较不会删除任一模式的 FP/FN。
+- 最终 quick：40 张图片，全部 20 个评估 code 均无 FP/FN；fixed 与 adaptive 的 micro/macro Precision、Recall、F1 均为 1.0，未匹配项均为 0。两种模式在该合成数据上的 Issue 计数完全相同。
+- fixed 主运行总耗时 1.542859 秒、平均每图 0.038571 秒、`tracemalloc` Python 峰值 7,091,679 bytes；adaptive 第二次运行耗时 1.154479 秒。运行顺序、缓存和单次波动未受控，不能据此宣称 adaptive 更快。
+- 默认 fixed Demo 现在为 15 张图片、16 个 Issue、14 种 Issue code，新增 `BBOX_AREA_OUTLIER` 和跨 train/test 的 `SPLIT_LEAKAGE_NEAR`；Health Score 仍为 61.93/D，因为这两类新候选尚未纳入未经真实数据校准的扣分公式。
+
+### 25.5 实际验证命令
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 开发中首次新增聚焦测试 | 9 passed、1 failed；失败仅为 near 组的字典序 representative 位于 test，随后将泄漏 Issue 代表路径稳定定义为优先 train、再 val/test，并重跑通过。 |
+| `python scripts/generate_demo_dataset.py` | 通过，退出码 0。 |
+| `python scripts/smoke_test.py` | 通过，退出码 0；15 图、16 Issue、Health Score 61.93/D。 |
+| `python scripts/run_corruption_benchmark.py --profile quick` | 通过，退出码 0；fixed/adaptive 均 micro/macro F1=1.0、0 unmatched。 |
+| `python -m pytest -q tests/test_duplicates.py tests/test_image_quality.py tests/test_distribution.py` | 通过：10 passed in 1.44s。 |
+| `python -m pytest -q tests/test_bbox_outliers.py` | 通过：3 passed in 0.55s。 |
+| `python -m pytest -q tests/test_pipeline.py tests/test_ui_smoke.py` | 通过：9 passed in 5.76s。 |
+| `python -m pytest -q` | 通过：117 passed in 42.30s；0 failed。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0。 |
+| `git diff --check` | 通过，退出码 0；只有 LF→CRLF 非阻塞提示。 |
+| `git status --short` | 显示阶段 10 尚未提交的 Benchmark 文件以及本阶段允许范围内的 config、pipeline、checker、UI、README、状态文档和测试变更；被忽略的 Demo/Benchmark 生成物未出现。 |
+
+### 25.6 未验证事项、风险与阶段结论
+
+- fixed/adaptive 的相同满分只适用于本次可控合成数据，不证明 adaptive 在真实相机、天气、夜间或工业域中优于 fixed，也不代表阈值已经完成业务校准。
+- near duplicate 仍可能把合法连续帧、增强样本或业务上必须隔离的相似图视为候选；统计 bbox 离群也可能是稀有但正确的目标形态，因此二者都不自动修改标签或扣分。
+- `standard`、`scale` 和真实业务数据仍未执行；没有验证大规模耗时、native library 完整内存、并发稳定性、真实 precision/recall、训练效果或修复后的 mAP。
+- 阶段 11 状态为 **Complete**。新增功能、向后兼容默认、聚焦测试、完整测试、静态检查、编译和 quick Benchmark 均有实际证据，可以进入下一阶段；开始前仍须重新验证实时工作区和未提交的阶段 10/11 变更。
+
+## 26. 阶段 12：Health Score 校准与修复影响预演（2026-10-22）
+
+### 26.1 实时基线
+
+- 开始时分支为 `main`，最新提交仍为 `d36ff7e`。阶段 10/11 的 Benchmark、checker、配置、UI、测试与文档变更尚未提交；本阶段保留这些用户已有变更，没有覆盖或回退。
+- 项目目录及上级未发现适用的 `AGENTS.md`。重新读取了 scoring、models、config、pipeline、reports、UI、evaluation、Benchmark 运行脚本、阶段 11 checker 及相关测试。
+- 修改前 `python scripts/run_corruption_benchmark.py --profile quick` 通过：40 图，fixed/adaptive 的 micro/macro Precision、Recall、F1 均为 1.0，0 unmatched；主运行 2.049912 秒，Python 峰值 6,033,518 bytes。
+- 修改前 `python -m pytest -q tests/test_scoring.py tests/test_pipeline.py tests/test_reports.py` 通过：11 passed in 8.54s。`git diff --check` 退出码 0，只有 LF→CRLF 非阻塞提示。
+
+### 26.2 Score Profile 与兼容性
+
+- 新增不可变 `ScoreProfile`，封装 profile 名称、方法版本、五类 penalty caps、各类别纳入的 Issue code、distribution imbalance 归一化常数、空标签扣分规则、校准元数据和限制。
+- `legacy-v1` 保留原来的 structural 25、bbox 20、image 20、duplicates 15、distribution 20 上限，bbox 分母、唯一受影响图片比例、distribution 比例和等级规则均未改变。最终 Smoke Test 仍为 15 图、16 Issue、61.93/D；显式检查返回 `profile=legacy-v1`、`methodology=1.0.0`。
+- `HealthScore` 现在记录 `methodology_version`、`profile_name`、`penalty_caps`、`raw_ratios`、`scoring_rules`、`calibration_metadata` 和 `limitations`。默认仍不对 `LABEL_EMPTY` 扣分，单类别 distribution penalty 仍为 0。
+- `ScoringConfig` 默认 `legacy-v1`。`calibrated-v2` 只有在显式启用，且元数据证明 schema 1.0.0 的 standard/scale Benchmark 已通过验收和单调性检查时才可加载；quick 或缺少证据会被 Pydantic 拒绝。
+- Pipeline 在阈值快照中记录 scoring 配置，并使用解析出的 profile 计分。没有把 Health Score 描述为模型性能、mAP 或修复收益预测。
+
+### 26.3 单调性与校准结果
+
+- 每个候选执行 10 个确定性检查：structural/bbox/image 同类 Issue 单调性、duplicate 单调性、distribution 单调性、error 相对 info、类别封顶稳定、空标签零扣分、单类别零 distribution penalty、重复计算稳定。3 个候选共 30 项，全部通过。
+- `calibrate_health_score.py` 读取 `benchmarks/generated/<profile>/result.json`，评估 legacy、balanced v2 和 duplicate-aware v2；输出 JSON/Markdown 到被 Git 忽略的生成目录，不修改配置或源码。
+- quick 实测候选结果：legacy 为 clean 100.00 / mild 90.68 / severe 6.67 / discrimination 93.33；balanced v2 为 100.00 / 90.81 / 7.67 / 92.33；duplicate-aware v2 为 100.00 / 90.08 / 6.67 / 93.33。三者 stability delta 均为 0。
+- 预先定义的推荐条件同时要求 standard/scale profile、micro/macro F1≥0.95、0 unmatched、类别 Ground Truth 匹配、单调性通过、区分度≥25 和精确重复稳定。当前只运行 quick，因此 `recommended_candidate=null`，三个候选均未 accepted，`calibrated-v2` 没有达到推荐条件，运行时继续使用 `legacy-v1`。
+
+### 26.4 修复影响预演
+
+- 新增 `RepairScenario`、`RepairImpact` 和 `RepairSimulationReport`，支持选定 `issue_ids`、一个 Issue code、一个 duplicate group、排除不可读图片及修复跨 split 泄漏。工作量只允许 low/medium/high。
+- 预演只复制/过滤 Pydantic 数据并用同一 Score Profile 重新计分；不读取、写入或覆盖源 ZIP、图片和标签。输出当前分数、模拟分数、差值、受影响 Issue、受影响重复组、假设、caveat 和 `source_data_modified=false`。
+- 跨 split 泄漏与 duplicate group 的依赖会同时从模拟证据中移除并明确要求人工确认；不可读图片排除会在内存中调整图片/标注总体和类别分布。统计候选、near leakage 等含歧义情景均标记人工确认。
+- Pipeline 默认生成并按 score delta、受影响数和稳定 ID 排序展示最多 5 个情景。JSON 自动包含完整结构，HTML 和 Streamlit Doctor 面板明确使用 “Hypothetical repair impact” 和“未实际执行”免责声明。
+- 单元测试用哨兵文件和序列化前后对比确认预演没有修改文件或输入 `AuditReport`；所有模拟分数均由 Pydantic 限制在 0–100。HTML 动态内容继续使用统一转义函数。
+
+### 26.5 实际修改文件
+
+- 新建：`src/vision_doctor/scoring_calibration.py`、`src/vision_doctor/repair_simulation.py`、`scripts/calibrate_health_score.py`、`tests/test_scoring_calibration.py`、`tests/test_repair_simulation.py`。
+- 修改：`src/vision_doctor/scoring.py`、`src/vision_doctor/models.py`、`src/vision_doctor/config.py`、`src/vision_doctor/pipeline.py`、`src/vision_doctor/reports/html_report.py`、`src/vision_doctor/ui/dashboard.py`、`src/vision_doctor/ui/doctor_panel.py`、`tests/test_scoring.py`、`tests/test_pipeline.py`、`tests/test_reports.py`、`tests/test_ui_smoke.py`、`README.md`、本状态文件。
+- 未修改生产 checker 规则、Agent、JSON renderer、`evaluation.py` 或 Benchmark 运行脚本；没有 commit、push、部署或调用真实 API。
+
+### 26.6 实际验证命令
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 修改前 `python scripts/run_corruption_benchmark.py --profile quick` | 通过，退出码 0；micro/macro F1=1.0，0 unmatched。 |
+| 修改前 `python -m pytest -q tests/test_scoring.py tests/test_pipeline.py tests/test_reports.py` | 通过：11 passed in 8.54s。 |
+| 首次新增聚焦测试 | 23 passed、1 failed；失败是测试对 Markdown 中 `synthetic` 的大小写断言，不是产品行为。改为大小写无关断言后通过。 |
+| 首次新增聚焦 Ruff | 失败：3 个未使用导入和 1 个 import 排序问题；清理后通过。 |
+| 最终 `python scripts/run_corruption_benchmark.py --profile quick` | 通过，退出码 0；40 图，fixed/adaptive 均 micro/macro F1=1.0、0 unmatched；fixed 1.637875 秒、平均每图 0.040947 秒、Python 峰值 6,021,103 bytes；adaptive 1.264552 秒。 |
+| `python scripts/calibrate_health_score.py --profile quick` | 通过，退出码 0；3 个候选、30 个单调性检查全部通过，未修改生产配置，`recommended_candidate=null`。 |
+| `python -m pytest -q tests/test_scoring.py tests/test_scoring_calibration.py tests/test_repair_simulation.py` | 通过：10 passed in 3.51s。 |
+| `python -m pytest -q tests/test_pipeline.py tests/test_reports.py tests/test_ui_smoke.py` | 通过：14 passed in 11.20s；另有 2 条本机 pandas 可选性能包版本警告。 |
+| `python -m pytest -q` | 最终复测通过：125 passed in 48.71s；0 failed；只有 2 条 pandas/numexpr/bottleneck 环境警告。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0。 |
+| `git diff --check` | 通过，退出码 0；只有 LF→CRLF 非阻塞提示。 |
+| `python scripts/smoke_test.py` | 通过，退出码 0；15 图、16 Issue、61.93/D、schema 1.0.0。 |
+| 临时单行 legacy 检查 | 首次未设置 `PYTHONPATH` 时因 `ModuleNotFoundError: vision_doctor` 退出码 1；补充项目 `src` 到 `PYTHONPATH` 后退出码 0，确认 61.93/D、legacy-v1/1.0.0 和 5 个预演情景。该首次失败是临时命令环境，不是应用或测试失败。 |
+| `git status --short` | 显示阶段 10/11 尚未提交的文件和本阶段允许范围内的新建/修改；被忽略的 Demo ZIP、Benchmark ZIP/结果和临时目录未出现。 |
+
+### 26.7 未验证事项、限制与阶段结论
+
+- 未运行 standard、scale 或真实业务数据校准，因此不能宣称 `calibrated-v2` 已可用于生产；quick 满分也不能代表真实域 precision/recall、跨域稳定性或业务价值。
+- 预演只计算“若相应证据不再存在”的评分变化，未建模全部因果依赖，不验证实际修复后的数据，也不预测训练效果或 mAP。负 delta 在模型中允许并会如实展示，避免把排除数据必然描述成改善。
+- 没有执行真实 API、外部网络、部署、commit 或 push。阶段 10–12 变更仍在本地工作树中。
+- 阶段 12 状态为 **Complete**：legacy-v1 兼容、Profile 元数据、10 类单调性不变量、校准安全门槛、5 类修复预演、JSON/HTML/UI 展示和全部质量门禁均有实际证据。可以进入下一阶段，但下一阶段开始前必须重新检查实时 Git 状态并决定如何处理尚未提交的阶段 10–12 变更。
+
+## 27. 阶段 13：证据查询型 Dataset Doctor 与事实校验（2026-10-22）
+
+### 27.1 实时基线
+
+- 开始时分支为 `main`，最新提交仍为 `d36ff7e`。阶段 10–12 的 Benchmark、checker、评分、修复预演、UI、测试和文档改动尚未提交；本阶段保留这些现有改动，没有覆盖或回退。
+- 重新读取了 models、config、pipeline、scoring、Agent 三个既有模块、阶段 11/12 新模型、报告、环境示例、依赖和 Agent/Pipeline 测试；项目目录及上级未发现适用的 `AGENTS.md`。
+- 修改前 `python -m pytest -q tests/test_agent_fallback.py tests/test_agent_client.py tests/test_pipeline.py` 通过：36 passed in 29.91s。修改前 `python scripts/smoke_test.py` 通过：15 图、16 Issue、61.93/D。基线没有阻塞项。
+
+### 27.2 只读 Evidence Query Service
+
+- 新增 `EvidenceQueryService`，只持有并读取已经构造的 `AuditReport`。允许列表恰好包含 `get_dataset_summary`、`get_issue_group`、`get_representative_issues`、`get_class_distribution`、`get_score_component`、`get_duplicate_summary`、`get_split_leakage_summary` 和 `get_repair_simulations`。
+- 每个工具使用 `extra=forbid` 的 Pydantic 参数模型，不接受任意文件路径、URL、命令或代码。输出通过排序、紧凑、拒绝 NaN 的稳定 JSON 序列化；代表项数量、单次响应字节和累计证据字节均有配置上限。
+- 工具不返回图片字节、标签原文、完整标签或完整 Issue 列表。文件相对路径和类别名只作为不可信字符串数据透传，不参与文件系统、网络或代码操作。
+- `LLMConfig` 新增 `evidence_query_enabled`、`max_tool_rounds`、`max_tool_calls_per_round`、`max_tool_result_items`、`max_tool_result_bytes` 和 `max_total_evidence_bytes`；默认最多 3 轮，每轮最多 3 次调用、每次最多 10 项、单次 8,000 bytes、累计 24,000 bytes。Pydantic 上限保证工具轮数不能超过 3。
+
+### 27.3 单 Agent 循环与兼容回退
+
+- Dataset Doctor 仍为单一 Agent。支持工具协议的客户端先取得最小数据集概览，再使用 OpenAI-compatible `tools`/`tool_choice=auto` 循环；最终仍只接受 `Diagnosis` JSON。没有引入 Multi-Agent、LangGraph、数据库或任何写数据工具。
+- 现有 `DatasetDoctorClient.complete` fake 注入接口保持可用；新增的工具协议接口也是可注入 Protocol。Provider 或旧 fake 不支持工具调用时，使用原有的受限一次性聚合 Prompt，`execution_mode=one_shot`。
+- 未启用 LLM、无 Key、SDK/网络/API/认证/超时错误、空响应、非 JSON、schema 错误、未知工具、非法参数、协议错误、重复调用 ID、轮数或证据超限、事实校验失败均安全回退。结果保持 `generated_by=deterministic`，并只记录枚举化的 `diagnosis_failure_stage`；不会记录完整响应、Prompt、Authorization 或 Key。
+- Pipeline 将 `diagnosis_mode` 明确记录为 `deterministic_fallback`、`one_shot` 或 `evidence_query`。无 Key 测试实际得到 `deterministic_fallback` 和 `llm_disabled`，且没有创建真实 SDK 客户端。
+
+### 27.4 结构化声明与事实校验
+
+- `Diagnosis.evidence_claims` 为向后兼容的默认空列表。每项显式记录 claim type、metric name、claimed value、来源工具、相关 Issue ID 以及 fact/inference/manual_confirmation 分类；既有序列化数据无需该字段也能加载。
+- 校验器对 fact 类声明核对数据集/Issue 数量、Health Score 与等级、五类扣分、类别实例数、exact/near 重复组数、跨 split 泄漏组数和修复预演 delta，并验证 claim 类型与来源工具兼容。
+- 所有 finding、action 和 claim 的 Issue ID 必须存在；finding severity 必须与其证据中的最高 severity 一致；所有 critical Issue 必须出现在优先问题中。
+- 输出文本会检查禁止性的“保证提升 mAP/模型性能”承诺和声称已经修改、修复或删除源数据的表述。校验失败不标记为 LLM 成功，而是映射为脱敏失败阶段并生成 deterministic fallback。
+- HTML 报告和 Doctor 面板显示运行模式、脱敏失败阶段和结构化声明；动态文本继续统一转义。fallback 自身也输出最小的结构化 score/Issue count 声明。
+
+### 27.5 实际修改文件
+
+- 新建：`src/vision_doctor/agent/evidence_tools.py`、`src/vision_doctor/agent/validator.py`、`tests/test_agent_tools.py`、`tests/test_agent_validator.py`。
+- 修改：`src/vision_doctor/agent/__init__.py`、`client.py`、`fallback.py`、`prompts.py`、`src/vision_doctor/models.py`、`config.py`、`pipeline.py`、`reports/html_report.py`、`ui/doctor_panel.py`、`.env.example`、`tests/test_agent_client.py`、`test_agent_fallback.py`、`test_pipeline.py`、`test_reports.py`、`README.md` 和本状态文件。
+- `requirements.txt` 无需新增依赖，因此未修改。阶段 13 没有修改 checker、评分规则、Benchmark、修复预演算法或 UI 产品范围；工作树中这些文件的变化来自尚未提交的阶段 10–12。
+
+### 27.6 实际验证命令
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 修改前 `python -m pytest -q tests/test_agent_fallback.py tests/test_agent_client.py tests/test_pipeline.py` | 通过：36 passed in 29.91s。 |
+| 修改前 `python scripts/smoke_test.py` | 通过：15 图、16 Issue、61.93/D、schema 1.0.0。 |
+| 开发中聚焦测试 | 通过：41 passed；首次聚焦 Ruff 发现 5 个 import/行宽/异常链等风格问题，均在本阶段文件内修复。 |
+| 集成 `python -m pytest -q tests/test_agent_client.py tests/test_agent_fallback.py tests/test_pipeline.py tests/test_reports.py` | 通过：49 passed in 39.20s。 |
+| 最终 `python -m pytest -q tests/test_agent_tools.py tests/test_agent_validator.py` | 通过：17 passed in 13.36s。 |
+| 最终 `python -m pytest -q tests/test_agent_client.py tests/test_agent_fallback.py tests/test_pipeline.py` | 通过：44 passed in 33.95s。 |
+| 最终 `python scripts/smoke_test.py` | 通过，退出码 0；15 图、16 Issue、61.93/D。脚本按现有设计不启用 Doctor，因此 `diagnosis=null`；无 Key fallback 由 Agent/Pipeline 测试实际验证。 |
+| `python -m pytest -q` | 通过：150 passed in 68.28s；0 failed、0 skipped。只有本机 pandas 对旧版可选性能包 `numexpr`/`bottleneck` 的 2 条警告。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0。 |
+| `git diff --check` | 通过，退出码 0；只有 LF→CRLF 非阻塞提示。 |
+| `git status --short` | 显示阶段 10–12 既有未提交文件以及本阶段允许范围内的新建/修改；被忽略的 Demo/Benchmark 生成物和 `.env` 未出现。 |
+
+### 27.7 当前运行模式、未验证事项与阶段结论
+
+- 本阶段普通测试全部使用 fake/mock 客户端或无 Key fallback，没有访问真实网络、没有调用 DeepSeek、没有产生 API 费用，也没有读取或输出本地 Key。阶段 13 的工具调用兼容性是 mock 证据，不能描述为真实 DeepSeek API 成功。
+- 真实 Provider 对 tools、`response_format` 和多轮消息组合的支持、远程延迟、计费、限流及输出稳定性尚未验证。Provider 不支持 tools 时已验证会保留一次性聚合 Prompt 路径；任一路径失败均保留完整 deterministic fallback。
+- 自然语言安全检查只针对明确禁止性的性能保证和已修改数据声明；一般事实必须依靠结构化 claims 校验，但仍不能证明所有未结构化叙述都绝对无误。类别语义、near duplicate、统计离群和修复预演仍需人工确认。
+- 阶段 13 状态为 **Complete**。8 个只读证据接口、严格 Pydantic 参数、调用/证据上限、单 Agent 工具循环、一次性兼容路径、结构化事实校验、脱敏回退、报告/UI 展示与全部质量门禁均有实际证据。可以进入下一阶段；开始前必须重新检查实时 Git 状态，并明确处理仍未提交的阶段 10–13 变更。
+
+## 28. 阶段 14：场景化数据质量知识库与安全检索（2026-10-22）
+
+### 28.1 实时基线
+
+- 开始时分支为 `main`，最新提交仍为 `d36ff7e`。阶段 10–13 的 Benchmark、checker、评分、修复预演、Evidence Query、事实校验、测试和文档改动尚未提交；本阶段保留这些用户现有修改，没有覆盖或回退。
+- 项目目录及上级未发现适用的 `AGENTS.md`。`requirements.txt` 已包含 PyYAML 6.x，无需新增依赖。
+- 开始前 `python -m pytest -q tests/test_agent_tools.py tests/test_agent_validator.py tests/test_pipeline.py` 通过：21 passed in 15.95s；`python scripts/smoke_test.py` 通过：15 图、16 Issue、61.93/D。阶段 13 基线没有阻塞项。
+- 开始前 `git diff --check` 退出码 0，只有 LF→CRLF 非阻塞提示；工作树中的既有未提交内容与阶段 13 结束记录一致。
+
+### 28.2 知识包 Schema 与内容边界
+
+- 新增固定枚举 `KnowledgeProfile`：`generic`、`industrial_inspection`、`retail_detection`、`small_object_detection`。四个包均为本地 YAML，schema version 为 `1.0.0`。
+- 每个知识包均包含 profile/display name、顶层 applicable Issue codes、结构化 review guidance、recommended questions、caveats、source 和 provenance。每条指导有稳定 ID、适用 Issue code、统计信号和人工确认标记。
+- `KnowledgePack`、`KnowledgeGuidanceEntry`、`KnowledgeProvenance` 和 `KnowledgeGuidanceContext` 使用 strict Pydantic 模型。校验包括 pack 内 ID 唯一、Issue code 唯一、entry code 必须在 pack 顶层声明，以及检索后 entry ID 与内容顺序一致。
+- 所有 pack 的 provenance 均明确标记为 `general_guidance`，内容没有行业准确率、缺陷率、mAP、收益数字或修复效果承诺，也不包含 Key、用户路径或用户数据。
+
+### 28.3 安全加载与有限检索
+
+- loader 使用代码内的 `KnowledgeProfile -> 固定文件名` 注册表和 `yaml.safe_load`；用户值、类别名、相对路径、数据集名和 ZIP 文本均不能拼接知识包路径。未知 profile 默认回退 generic，并只记录脱敏的 `unknown_profile` 原因；也可选择安全失败。
+- 检索只读取已验证的 `AuditReport` 聚合：Issue code、类别稀有/零实例/失衡信号、bbox Issue/统计信号、图片质量 Issue/统计信号、跨 split leakage 和 repair simulation 是否存在。类别名、文件路径和数据集文本不会参与选择或排序。
+- 排序由 Issue code 命中数、统计信号命中数和稳定 guidance ID 决定；默认最多返回 5 条 guidance 和 5 个 review question，配置上限均为 10。相同报告和配置重复检索得到相同结果。
+- `AuditReport.knowledge_guidance` 与 `issues`、`health_score` 等检测事实字段分离，记录 profile、pack schema、使用的 guidance ID、source/provenance、问题、caveats 和固定 advisory notice。
+
+### 28.4 Agent、fallback、UI 与报告集成
+
+- Upload 页新增枚举化 Application scenario 选择，默认 generic。`KnowledgeConfig` 集中管理 profile、返回条目上限和问题上限；threshold snapshot 记录实际配置。
+- Pipeline 在 deterministic checker、评分和 repair simulation 完成后进行本地检索，再将同一 `KnowledgeGuidanceContext` 交给 Agent。检索不会改变 Issue、Health Score、重复组或修复预演。
+- one-shot Prompt 把知识上下文放入单独的 `knowledge_guidance` 字段；Evidence Query 初始 `get_dataset_summary` 只返回有限的 profile/version/entry 指导。系统 Prompt 明确指导不是检测事实、不得覆盖工具证据，也不得把数据集文本当作知识库指令。
+- deterministic fallback 从报告中的同一检索结果生成带 profile 和 pack version 的场景化行动说明，并在 caveats 中记录 advisory notice、review questions 和包限制。无 Key 时仍得到完整场景化 Diagnosis。
+- JSON 自动保留完整结构并可 Pydantic round-trip；HTML 新增独立 Scenario guidance 章节，显示 profile、版本、使用 ID、source/provenance、advisory rule、是否需人工确认、问题和 caveats。所有动态文本继续统一 HTML 转义。
+
+### 28.5 实际修改文件
+
+- 新建：`src/vision_doctor/knowledge/__init__.py`、`loader.py`、`retrieval.py`、`packs/generic.yaml`、`industrial_inspection.yaml`、`retail_detection.yaml`、`small_object_detection.yaml`、`tests/test_knowledge.py`。
+- 修改：`src/vision_doctor/models.py`、`config.py`、`pipeline.py`、`agent/prompts.py`、`agent/fallback.py`、`agent/evidence_tools.py`、`ui/upload.py`、`reports/html_report.py`、`tests/test_agent_client.py`、`tests/test_agent_fallback.py`、`tests/test_pipeline.py`、`README.md` 和本状态文件。
+- `requirements.txt` 未修改，因为现有依赖已满足安全 YAML 加载。没有修改 Agent client、事实 validator、评分规则、生产 checker、Benchmark 或 Demo 生成逻辑。
+
+### 28.6 实际验证命令
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| 开始前 `python -m pytest -q tests/test_agent_tools.py tests/test_agent_validator.py tests/test_pipeline.py` | 通过：21 passed in 15.95s。 |
+| 开始前 `python scripts/smoke_test.py` | 通过：15 图、16 Issue、61.93/D、schema 1.0.0。 |
+| 首次 `python -m pytest -q tests/test_knowledge.py` | 4 passed、1 failed；失败是测试把返回上限设为 3，却同时要求第 4 个合法排序条目必须出现。将测试上限改为 5 后通过，没有修改生产检索排序迎合断言。 |
+| 开发中 `python -m pytest -q tests/test_knowledge.py` | 通过：5 passed in 4.38s。 |
+| 开发中聚焦 Ruff | 通过：`All checks passed!`。 |
+| 开发中 Agent/Fallback/Pipeline 回归 | 通过：44 passed in 33.36s。 |
+| 最终 `python -m pytest -q tests/test_knowledge.py` | 通过：5 passed in 4.28s。 |
+| 最终 `python -m pytest -q tests/test_agent_client.py tests/test_agent_fallback.py tests/test_pipeline.py` | 通过：44 passed in 32.97s。 |
+| 最终 `python scripts/smoke_test.py` | 通过，退出码 0；15 图、16 Issue、61.93/D。脚本按既有设计不运行 Doctor，因此 `diagnosis=null`；无 Key场景建议由 Pipeline/Fallback 测试验证。 |
+| `python -m pytest -q` | 通过：155 passed in 67.37s；0 failed、0 skipped。只有本机 pandas 对旧版可选性能包 `numexpr`/`bottleneck` 的 2 条警告。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0，包含新 knowledge package。 |
+| `git diff --check` | 通过，退出码 0；只有 LF→CRLF 非阻塞提示。 |
+| `git status --short` | 显示阶段 10–13 既有未提交内容和本阶段允许范围内的新建/修改；`.env`、Demo ZIP 和 Benchmark 生成结果未出现。 |
+
+### 28.7 未验证事项、限制与阶段结论
+
+- 四个知识包是项目编写的通用指导，不是来自具体工厂、零售商、传感器、客户数据或外部标准的领域知识验证；不能据此宣称行业准确率、生产适用性、修复收益或模型性能提升。
+- 检索是确定性规则匹配，不是语义向量检索；它只根据审计聚合选择有限建议。细粒度行业语义、组织标注规范和业务代价仍需领域人员提供并人工确认。
+- 本阶段没有调用真实 DeepSeek 或其他外部 API，没有网络请求、费用、commit、push 或部署。LLM 知识上下文通过 fake/mock 和 Prompt 结构测试验证；真实远程 Provider 对该新增上下文的行为未验证。
+- 阶段 14 状态为 **Complete**。四个知识包均通过 Schema，恶意 profile/类别名/路径不能控制文件读取，generic 为默认且既有排序/流程保持兼容，LLM 与 fallback 使用同一版本，报告明确分离事实、建议和人工确认，全量质量门禁通过。可以进入下一阶段；开始前必须重新读取实时仓库并处理仍未提交的阶段 10–14 改动。
+
+## 29. 阶段 16：技术先进性增强的全量验收（2026-10-22）
+
+### 29.1 实时仓库与验收范围
+
+- 开始时分支为 `main`，本地和远程已提交 HEAD 均为 `d36ff7e`，`origin` 为 `https://github.com/willbanksfassler-cpu/VisionDoctor.git`。阶段 10–14 改动全部仍在工作树，未暂存、未提交。
+- 实际枚举并检查了源码、测试、脚本、Benchmark 说明和生成结果、Score calibration、Agent tools/validator、知识库、README、MVP 契约和实施状态；项目及上级未发现适用的 `AGENTS.md`。
+- 实时搜索没有发现阶段 15 状态记录，也没有视觉基础模型、视觉 embedding backend、视觉离群接口或对应测试。该可选模块状态为 **Not started / 未验证**，没有把缺失或 skipped 记为 pass。现有基础 Pipeline 不导入或依赖该模块。
+- Python 为 3.11.7；Node.js 为 20.20.1，npm 为 10.8.2。Node 仅用于确定性生成/校验静态 CSS，Streamlit 运行时不依赖 Node 或 npm 包。
+
+### 29.2 已验收的算法与接口
+
+- **可控缺陷 Benchmark**：固定随机种子生成 clean/corrupted YOLO ZIP 和独立 Ground Truth，以 issue code、relative path、annotation line 及完整 duplicate group 成员匹配 TP/FP/FN，不用 Issue 数量替代证据匹配。
+- **稳健统计检查**：同 split/跨 split 的 SHA-256 exact 和 pHash near 检测；图片质量 fixed/adaptive 阈值；类别内 log-area/log-aspect-ratio 的 median、MAD/IQR 离群检测和小样本回退。
+- **可验证 Health Score**：`legacy-v1` 保持五类封顶扣分；`calibrated-v2` 受 standard/scale 证据门槛保护；10 类单调性不变量；修复影响预演只在内存中删除假设证据并重新计分。
+- **单一 Dataset Doctor**：8 个只读 Evidence Query 工具、最多 3 轮调用和严格证据字节上限；Diagnosis Pydantic 校验、Issue ID/数量/分数/类别/重复/泄漏事实校验及禁止性 mAP 承诺检查；所有错误脱敏回退。
+- **场景知识库**：generic、industrial_inspection、retail_detection、small_object_detection 四个 schema `1.0.0` 本地知识包；固定枚举到固定文件映射、有限确定性检索，指导信息与 AuditReport 检测事实分离。
+- **答辩与 Demo 展示修复**：README 新增大白话工作流程、需求应答和创新点；四标签 Streamlit UI、默认 fallback、修复预演和知识包文本改为简体中文。`scripts/build_ui_theme.mjs` 无第三方 npm 依赖，确定性生成 `theme.css`；Python 只注入仓库拥有的静态 CSS，并包含移动端断点。
+
+### 29.3 quick 与 standard Benchmark 逐类指标
+
+最终运行均使用 seed `20261022`。下表中 `TP(q/s)` 分别表示 quick/standard；两者每个 code 的 FP=0、FN=0、Precision=1.0、Recall=1.0、F1=1.0。
+
+| 评估 code | TP(q/s) | FP(q/s) | FN(q/s) | Precision(q/s) | Recall(q/s) | F1(q/s) |
+|---|---:|---:|---:|---:|---:|---:|
+| BBOX_AREA_OUTLIER | 2 / 2 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| BBOX_ASPECT_RATIO_OUTLIER | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| BBOX_CROSSES_BORDER | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| BBOX_NON_POSITIVE | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| BBOX_OUT_OF_RANGE | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| BBOX_TINY | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| CLASS_ID_INVALID | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| CLASS_IMBALANCE | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| DUPLICATE_EXACT | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| DUPLICATE_NEAR | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| IMAGE_BLURRY | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| IMAGE_BRIGHT | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| IMAGE_DARK | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| IMAGE_LOW_RESOLUTION | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| IMAGE_UNREADABLE | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| LABEL_EMPTY | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| LABEL_MISSING | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| LABEL_PARSE_ERROR | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| SPLIT_LEAKAGE_EXACT | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+| SPLIT_LEAKAGE_NEAR | 1 / 1 | 0 / 0 | 0 / 0 | 1.0 / 1.0 | 1.0 / 1.0 | 1.0 / 1.0 |
+
+- quick：40 张合成图片，micro/macro P/R/F1 均为 1.0，0 unmatched，类别分布与 Ground Truth 一致；fixed 1.579229 秒，平均 0.039481 秒/图，`tracemalloc` Python 峰值 6,015,159 bytes；adaptive 1.260185 秒。
+- standard：160 张合成图片，micro/macro P/R/F1 均为 1.0，0 unmatched，类别分布与 Ground Truth 一致；fixed 5.673317 秒，平均 0.035458 秒/图，Python 峰值 6,415,805 bytes；adaptive 4.815752 秒。
+- fixed 与 adaptive 在两种规模上 Issue counts、P/R/F1 和 unmatched 完全相同。本次 adaptive 用时更短，但运行顺序、缓存和系统负载未受控，不能据此宣称 adaptive 性能更优。
+
+### 29.4 Health Score、校准与 repair simulation
+
+- Demo 最终仍为 15 图、16 Issue、Health Score 61.93/D；`legacy-v1` 行为保持兼容，空标签不自动扣分，单类别 distribution penalty 为 0，五类上限和 0–100 范围保持不变。
+- `python scripts/calibrate_health_score.py --profile quick` 实际评估 3 个候选、30 个单调性检查，全部通过；生产配置没有被修改。
+- legacy-v1 为 clean 100.00、mild 90.68、severe 6.67、区分度 93.33；balanced v2 为 100.00/90.81/7.67/92.33；duplicate-aware v2 为 100.00/90.08/6.67/93.33；三者 stability delta 均为 0。
+- `recommended_candidate=null`。原因是本次校准命令明确使用 quick profile，`standard_or_scale_profile=false`；即使 standard Benchmark 已单独通过，也不能把 quick calibration 冒充 standard calibration。因此 `calibrated-v2` 没有达到启用条件。
+- 修复影响预演测试使用序列化前后对比和哨兵文件，确认 `source_data_modified=false`、输入报告及源文件均未变化；分数始终为 0–100。其 delta 只是健康分假设变化，不预测 mAP 或真实修复收益。
+
+### 29.5 Agent、知识库与视觉模块证据
+
+- 专项运行 `tests/test_agent_fallback.py`、`test_agent_client.py`、`test_agent_tools.py`、`test_agent_validator.py`、`test_knowledge.py`、`test_repair_simulation.py`、`test_scoring.py` 和 `test_scoring_calibration.py`：72 passed in 48.10s。
+- 测试覆盖无 Key 不创建 SDK、deterministic fallback、fake one-shot/tool calling、未知工具/非法参数/轮数和证据超限、空响应、非 JSON、schema/Issue ID/数量/score/severity/critical omission 校验、超时/网络/认证错误、禁止性 mAP 承诺及“已修改数据”声明回退。
+- 异常只保留脱敏枚举 failure stage；测试 Key 不出现在 Diagnosis、日志或异常文本中，完整 Prompt 和完整原始响应也不写入报告。
+- 四个知识库 profile 均为 schema `1.0.0`，通过 Pydantic；恶意 profile 安全回退 generic，类别名、路径和数据集文本不参与文件读取或指导排序。LLM 和 fallback 读取同一 `KnowledgeGuidanceContext`。
+- 本阶段没有真实 API 请求。Agent 是 mock/fake 与无 Key fallback 验证，不代表真实 DeepSeek 工具调用兼容性。
+- 阶段 15 可选视觉模块：**未实现、未进行真实模型验证、也没有 fake backend 测试**。现有 pHash、OpenCV 启发式和 bbox 统计不能描述为视觉基础模型。基础 Pipeline 在没有该模块时通过全部测试和 Smoke Test。
+
+### 29.6 Demo 中文化、Node.js 样式与启动验证
+
+- 四个 tabs、上传说明、阈值、健康看板、问题筛选、重复组、AI Doctor、下载按钮、默认 fallback、repair simulation 和四个知识包的用户可见文本均改为简体中文；稳定 Issue code、JSON key 和模型枚举保持不变，以维持 API/报告兼容。
+- Node.js 20.20.1 对 `scripts/build_ui_theme.mjs` 执行 `node --check` 通过，`node scripts/build_ui_theme.mjs --check` 报告 `theme.css 校验通过`。样式包含统一色彩、卡片、tabs、上传框、按钮和 720px 移动端断点，不依赖第三方 npm 包或外部 CDN。
+- UI/Pipeline/Reports 聚焦回归为 15 passed；中文化、fallback、知识库、repair simulation、Pipeline 和报告聚焦回归为 25 passed。全量测试最终为 156 passed。
+- 沙箱内第一次启动受 Windows 套接字权限限制，未监听 8531，未记为成功；放行本机回环后 Streamlit 输出启动地址，`http://127.0.0.1:8531` 实测 HTTP 200 且页面含 Streamlit 标识。随后按该端口唯一监听 PID 3000 停止，确认监听已消失。
+
+### 29.7 最终命令与真实结果
+
+| 命令/检查 | 真实结果 |
+|---|---|
+| `python --version` | Python 3.11.7，退出码 0。 |
+| `python scripts/generate_demo_dataset.py` | 通过，生成被 Git 忽略的 `demo/visiondoctor_demo.zip`。 |
+| `python scripts/smoke_test.py` | 通过；15 图、16 Issue、61.93/D、schema 1.0.0。 |
+| `python scripts/run_corruption_benchmark.py --profile quick` | 通过；40 图，micro/macro P/R/F1=1.0，fixed 1.579229s，Python peak 6,015,159 bytes。 |
+| `python scripts/run_corruption_benchmark.py --profile standard` | 通过；160 图，micro/macro P/R/F1=1.0，fixed 5.673317s，Python peak 6,415,805 bytes。 |
+| `python scripts/calibrate_health_score.py --profile quick` | 通过；30/30 单调性检查，`recommended_candidate=null`，未修改生产配置。 |
+| `python -m pytest -q` | 通过：156 passed in 68.27s；0 failed、0 skipped，2 条 pandas 可选性能依赖版本警告。 |
+| `python -m ruff check .` | 通过：`All checks passed!`。 |
+| `python -m compileall app.py src scripts` | 通过，退出码 0。 |
+| `node --check scripts/build_ui_theme.mjs` | 通过，退出码 0。 |
+| `node scripts/build_ui_theme.mjs --check` | 通过：生成器与 `theme.css` 完全一致。 |
+| `git diff --check` | 通过，退出码 0；只有 LF→CRLF 非阻塞提示。 |
+| `python -m streamlit run app.py --server.headless true --server.port 8531` | 放行回环端口后启动通过；HTTP 200，随后正常停止精确监听进程。 |
+
+### 29.8 性能限制、真实证据缺口与发布判断
+
+- Benchmark 是固定种子、固定缺陷注入的合成数据。每类只有 1 个 Ground Truth（`BBOX_AREA_OUTLIER` 为 2 个）；1.0 指标证明这些受控场景被恢复，不代表真实用户数据的 precision/recall、跨域泛化或模型收益。
+- `tracemalloc` 只记录 Python 管理的分配，不包含 NumPy、Pillow、OpenCV 等 native library 的全部内存。standard 只有 160 图，scale、并发、长时间稳定性和 2,000 图上限附近性能未在本阶段运行。
+- pHash 近重复仍为简单两两比较，复杂度约 O(n²)，配置默认最多 2,000 图；大规模数据需要索引或分块方案。
+- adaptive 阈值在本次合成数据上没有准确率差异；真实相机、天气、夜间、工业和零售数据均未校准。bbox 离群、near duplicate、类别不平衡和知识库建议都必须人工确认。
+- 没有真实业务数据、真实训练对照、修复前后 mAP、真实视觉模型、真实 DeepSeek 工具调用、线上新版中文 UI 或移动端视觉截图证据。
+- `.env`、`.venv`、Demo ZIP、Benchmark 生成目录和 `.streamlit/secrets.toml` 均命中 `.gitignore`，未被跟踪；仓库扫描未发现疑似真实 Key 模式。`git diff --cached` 为空。
+- 当前工作树包含阶段 10–16 的大量已验证但未提交修改。就**现有实现范围**而言，测试、静态检查、编译、启动和密钥检查均满足 commit/push 前置条件；若赛事要求阶段 15 的真实视觉模型，则尚不具备该扩展范围的交付条件。
+- 本任务明确禁止自动 commit、push 和部署，因此没有发布这些改动。只读核验显示现有 GitHub 和 Streamlit URL 均 HTTP 200，但远程 `main` 仍是旧 commit `d36ff7e`，不能把现有公网 Demo 声称为本次阶段 10–16 的最终版本。

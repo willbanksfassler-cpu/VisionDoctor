@@ -1,0 +1,65 @@
+schema_version: "1.0.0"
+profile_id: small_object_detection
+display_name: 小目标检测
+applicable_issue_codes:
+  - LABEL_MISSING
+  - LABEL_EMPTY
+  - LABEL_PARSE_ERROR
+  - CLASS_ID_INVALID
+  - BBOX_TINY
+  - BBOX_AREA_OUTLIER
+  - BBOX_ASPECT_RATIO_OUTLIER
+  - BBOX_OUT_OF_RANGE
+  - BBOX_CROSSES_BORDER
+  - IMAGE_UNREADABLE
+  - IMAGE_BLURRY
+  - IMAGE_DARK
+  - IMAGE_BRIGHT
+  - IMAGE_LOW_RESOLUTION
+  - SPLIT_LEAKAGE_EXACT
+  - SPLIT_LEAKAGE_NEAR
+review_guidance:
+  - guidance_id: small-object-annotation-policy
+    title: 确认最小可见目标规则
+    guidance: 按可见性、截断、遮挡和模糊小目标的标注规则复核标签问题。
+    applicable_issue_codes: [LABEL_MISSING, LABEL_EMPTY, LABEL_PARSE_ERROR, CLASS_ID_INVALID]
+    evidence_signals: []
+    requires_human_confirmation: true
+  - guidance_id: small-object-bbox-review
+    title: 按类别背景判断极小框
+    guidance: 结合类别和图片分辨率复核极小框及统计离群候选；尺寸小本身不能证明合法目标被错误标注。
+    applicable_issue_codes: [BBOX_TINY, BBOX_AREA_OUTLIER, BBOX_ASPECT_RATIO_OUTLIER, BBOX_OUT_OF_RANGE, BBOX_CROSSES_BORDER]
+    evidence_signals: [bbox_statistics]
+    requires_human_confirmation: true
+  - guidance_id: small-object-image-detail
+    title: 检查小目标细节是否保留
+    guidance: 排除图片前，检查模糊、曝光、压缩或分辨率问题是否真的破坏了目标位置的任务相关细节。
+    applicable_issue_codes: [IMAGE_UNREADABLE, IMAGE_BLURRY, IMAGE_DARK, IMAGE_BRIGHT, IMAGE_LOW_RESOLUTION]
+    evidence_signals: [image_quality]
+    requires_human_confirmation: true
+  - guidance_id: small-object-sequence-leakage
+    title: 检查跨 split 的近相同帧
+    guidance: 检查跨 split 的完全和近似匹配是否共享场景、轨迹或采集序列；感知相似本身不能证明数据泄漏。
+    applicable_issue_codes: [SPLIT_LEAKAGE_EXACT, SPLIT_LEAKAGE_NEAR]
+    evidence_signals: [split_leakage]
+    requires_human_confirmation: true
+  - guidance_id: small-object-class-coverage
+    title: 复核类别覆盖和模拟优先级
+    guidance: 将类别覆盖与目标出现频率、采集目的对照，并且只把模拟分数变化当作复核顺序假设。
+    applicable_issue_codes: []
+    evidence_signals: [class_distribution, repair_simulation]
+    requires_human_confirmation: true
+recommended_questions:
+  - 标注人员采用了怎样的可见性和最小尺寸规则？
+  - 在当前存储分辨率下，小目标是否仍能辨认？
+  - 数据划分在场景或序列层面是否独立？
+  - 稀有类别反映真实采集分布，还是覆盖不足？
+caveats:
+  - 本知识包不定义通用最小目标尺寸，也不承诺检测性能。
+  - 阈值和标注规则必须针对目标传感器和任务进行验证。
+source: VisionDoctor 项目编写的小目标检测指导。
+provenance:
+  source_type: general_guidance
+  source_name: VisionDoctor 小目标检测知识包
+  source_reference: 仅为通用复核指导，不声明通用目标尺寸阈值或外部性能基准。
+  evidence_level: general_guidance

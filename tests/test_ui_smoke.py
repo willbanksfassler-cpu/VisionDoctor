@@ -24,6 +24,7 @@ from vision_doctor.ui.state import (
     observe_upload,
     store_analysis,
 )
+from vision_doctor.ui.theme import load_theme_css
 from vision_doctor.ui.upload import (
     analyze_uploaded_bytes,
     build_ui_settings,
@@ -39,10 +40,10 @@ def _demo_bytes(tmp_path: Path) -> bytes:
 def test_streamlit_entry_imports_with_exactly_four_tab_contract() -> None:
     assert callable(app.main)
     assert list(TAB_LABELS) == [
-        "Upload",
-        "Dashboard",
-        "Issue Explorer",
-        "AI Doctor & Report",
+        "上传数据",
+        "健康看板",
+        "问题浏览器",
+        "AI 诊断与报告",
     ]
     assert split_for_path("train/images/a.jpg") == "train"
     assert split_for_path("val/images/a.jpg") == "val"
@@ -60,6 +61,7 @@ def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> Non
         bright_threshold=215.0,
         near_duplicate_distance=4,
         allow_llm=False,
+        quality_mode="fixed",
     )
 
     report, workspace = analyze_uploaded_bytes(
@@ -71,6 +73,7 @@ def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> Non
         assert report.diagnosis is not None
         assert report.diagnosis.generated_by == "deterministic"
         assert report.threshold_snapshot["image_quality"]["min_width"] == 300
+        assert report.threshold_snapshot["image_quality"]["mode"] == "fixed"
 
         bbox_issues = filter_issues(report, codes={"BBOX_TINY"})
         quality_issues = filter_issues(report, codes={"IMAGE_BLURRY"})
@@ -79,6 +82,8 @@ def test_demo_upload_drives_offline_ui_data_and_downloads(tmp_path: Path) -> Non
         assert quality_issues
         assert class_issues
         assert report.duplicate_groups
+        assert report.repair_simulation is not None
+        assert report.repair_simulation.impacts
         assert {group.kind for group in report.duplicate_groups} == {"exact", "near"}
 
         bbox_image = image_for_issue(report, bbox_issues[0])
@@ -132,10 +137,22 @@ def test_ui_error_text_does_not_expose_unexpected_exception_details() -> None:
     assert "stack" not in message.lower()
 
 
+def test_static_theme_is_present_and_mobile_aware() -> None:
+    css = load_theme_css()
+
+    assert "[data-testid=\"stMetric\"]" in css
+    assert "[data-baseweb=\"tab-list\"]" in css
+    assert "@media (max-width: 720px)" in css
+    assert "<script" not in css.lower()
+
+
 def test_ui_preserves_actionable_parser_error_without_generic_masking() -> None:
     message = safe_error_message(
         DatasetParseError("data.yaml is missing required field 'names'.")
     )
 
-    assert message == "data.yaml is missing required field 'names'."
-    assert "Analysis could not be completed" not in message
+    assert message == (
+        "数据集结构或压缩包校验失败："
+        "data.yaml is missing required field 'names'."
+    )
+    assert "体检未能完成" not in message

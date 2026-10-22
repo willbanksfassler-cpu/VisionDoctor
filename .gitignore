@@ -29,3 +29,6 @@ reports/generated/
 
 # Reproducible local demo artifacts
 demo/visiondoctor_demo.zip
+
+# Generated synthetic benchmark archives and result artifacts
+benchmarks/generated/

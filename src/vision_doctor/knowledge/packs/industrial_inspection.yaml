@@ -1,0 +1,63 @@
+schema_version: "1.0.0"
+profile_id: industrial_inspection
+display_name: 工业质检
+applicable_issue_codes:
+  - LABEL_MISSING
+  - LABEL_EMPTY
+  - LABEL_PARSE_ERROR
+  - CLASS_ID_INVALID
+  - BBOX_TINY
+  - BBOX_AREA_OUTLIER
+  - BBOX_ASPECT_RATIO_OUTLIER
+  - IMAGE_UNREADABLE
+  - IMAGE_BLURRY
+  - IMAGE_DARK
+  - IMAGE_BRIGHT
+  - IMAGE_LOW_RESOLUTION
+  - SPLIT_LEAKAGE_EXACT
+  - SPLIT_LEAKAGE_NEAR
+review_guidance:
+  - guidance_id: industrial-defect-label-review
+    title: 确认缺陷与正常样本规则
+    guidance: 对照书面缺陷分类规范复核标签，并确认空标签是否代表有意采集的正常样本。
+    applicable_issue_codes: [LABEL_MISSING, LABEL_EMPTY, LABEL_PARSE_ERROR, CLASS_ID_INVALID]
+    evidence_signals: []
+    requires_human_confirmation: true
+  - guidance_id: industrial-bbox-context
+    title: 结合零件和缺陷尺度复核边界框
+    guidance: 结合零件类型、相机工位和缺陷形态检查边界框离群；少见形状仍可能是合法标注。
+    applicable_issue_codes: [BBOX_TINY, BBOX_AREA_OUTLIER, BBOX_ASPECT_RATIO_OUTLIER]
+    evidence_signals: [bbox_statistics]
+    requires_human_confirmation: true
+  - guidance_id: industrial-acquisition-review
+    title: 复核采集条件一致性
+    guidance: 排除样本前，按相机工位、照明设置、对焦状态和采集批次调查图片质量问题。
+    applicable_issue_codes: [IMAGE_UNREADABLE, IMAGE_BLURRY, IMAGE_DARK, IMAGE_BRIGHT, IMAGE_LOW_RESOLUTION]
+    evidence_signals: [image_quality]
+    requires_human_confirmation: true
+  - guidance_id: industrial-batch-leakage
+    title: 核对批次隔离
+    guidance: 检查跨 split 匹配是否来自同一零件、采集序列或生产批次；近似匹配仍需人工复核。
+    applicable_issue_codes: [SPLIT_LEAKAGE_EXACT, SPLIT_LEAKAGE_NEAR]
+    evidence_signals: [split_leakage]
+    requires_human_confirmation: true
+  - guidance_id: industrial-rare-defect-review
+    title: 保留合法的稀有缺陷
+    guidance: 将类别不平衡与已批准的缺陷分类和采样计划对照，再判断稀有缺陷类别是否属于数据问题。
+    applicable_issue_codes: []
+    evidence_signals: [class_distribution, repair_simulation]
+    requires_human_confirmation: true
+recommended_questions:
+  - 每张异常图片来自哪个相机工位和生产批次？
+  - 按标注规则，空标签是否是已经确认的正常样本？
+  - 稀有缺陷类型是否符合工艺和检测范围？
+  - 数据划分是否隔离了零件、序列和生产批次？
+caveats:
+  - 本知识包是通用质检指导，不包含经过验证的缺陷率或准确率基准。
+  - 缺陷分类、采集流程和可接受变化必须由领域工程师确认。
+source: VisionDoctor 项目编写的工业质检指导。
+provenance:
+  source_type: general_guidance
+  source_name: VisionDoctor 工业质检知识包
+  source_reference: 仅为通用复核指导，不来自特定工厂、行业标准或经过验证的性能研究。
+  evidence_level: general_guidance

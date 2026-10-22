@@ -1,0 +1,73 @@
+schema_version: "1.0.0"
+profile_id: generic
+display_name: 通用目标检测
+applicable_issue_codes:
+  - LABEL_MISSING
+  - LABEL_ORPHAN
+  - LABEL_EMPTY
+  - LABEL_PARSE_ERROR
+  - CLASS_ID_INVALID
+  - BBOX_NON_POSITIVE
+  - BBOX_OUT_OF_RANGE
+  - BBOX_CROSSES_BORDER
+  - BBOX_TINY
+  - BBOX_AREA_OUTLIER
+  - BBOX_ASPECT_RATIO_OUTLIER
+  - IMAGE_UNREADABLE
+  - IMAGE_BLURRY
+  - IMAGE_DARK
+  - IMAGE_BRIGHT
+  - IMAGE_LOW_RESOLUTION
+  - SPLIT_LEAKAGE_EXACT
+  - SPLIT_LEAKAGE_NEAR
+review_guidance:
+  - guidance_id: generic-label-review
+    title: 复核标签证据
+    guidance: 对照原图和数据集用途复核相关标签，只有在人工确认后再进行修改。
+    applicable_issue_codes: [LABEL_MISSING, LABEL_ORPHAN, LABEL_EMPTY, LABEL_PARSE_ERROR, CLASS_ID_INVALID]
+    evidence_signals: []
+    requires_human_confirmation: true
+  - guidance_id: generic-bbox-review
+    title: 复核边界框证据
+    guidance: 修改标签前先对照原图检查边界框；统计离群只是待复核候选，不是确定错误。
+    applicable_issue_codes: [BBOX_NON_POSITIVE, BBOX_OUT_OF_RANGE, BBOX_CROSSES_BORDER, BBOX_TINY, BBOX_AREA_OUTLIER, BBOX_ASPECT_RATIO_OUTLIER]
+    evidence_signals: [bbox_statistics]
+    requires_human_confirmation: true
+  - guidance_id: generic-image-review
+    title: 复核图片质量证据
+    guidance: 替换、排除或重新导出图片前，先检查原始图片和采集环境。
+    applicable_issue_codes: [IMAGE_UNREADABLE, IMAGE_BLURRY, IMAGE_DARK, IMAGE_BRIGHT, IMAGE_LOW_RESOLUTION]
+    evidence_signals: [image_quality]
+    requires_human_confirmation: true
+  - guidance_id: generic-leakage-review
+    title: 确认数据划分相互独立
+    guidance: 确认重复或视觉相似样本是否跨越训练与评估边界；近似重复在删除前必须人工复核。
+    applicable_issue_codes: [SPLIT_LEAKAGE_EXACT, SPLIT_LEAKAGE_NEAR]
+    evidence_signals: [split_leakage]
+    requires_human_confirmation: true
+  - guidance_id: generic-distribution-review
+    title: 确认类别分布是否符合预期
+    guidance: 将稀有或缺失类别与采集计划和实际用途对照；类别不平衡本身不能证明数据有错。
+    applicable_issue_codes: []
+    evidence_signals: [class_distribution]
+    requires_human_confirmation: true
+  - guidance_id: generic-repair-preview
+    title: 把修复预演当作假设
+    guidance: 模拟分数变化只能用于安排人工复核顺序，不能说明修复已经执行，也不能证明模型效果会提升。
+    applicable_issue_codes: []
+    evidence_signals: [repair_simulation]
+    requires_human_confirmation: true
+recommended_questions:
+  - 空标签是否是有意保留的负样本？
+  - 当前类别分布是否符合数据采集计划？
+  - 训练、验证和测试数据来源是否真正独立？
+  - 边界框候选是否已经对照原图检查？
+caveats:
+  - 本知识包是项目编写的通用指导，不是经过行业验证的性能阈值。
+  - 检测事实以 AuditReport 为准，优先级高于这些建议。
+source: VisionDoctor 项目编写的通用数据质量指导。
+provenance:
+  source_type: general_guidance
+  source_name: VisionDoctor 通用指导知识包
+  source_reference: 项目编写的复核提示，不包含外部性能声明或行业数值基准。
+  evidence_level: general_guidance

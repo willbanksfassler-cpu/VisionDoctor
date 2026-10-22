@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from vision_doctor.checkers.image_quality import (
@@ -15,6 +16,7 @@ from vision_doctor.checkers.image_quality import (
     IMAGE_UNREADABLE,
     check_image_quality,
 )
+from vision_doctor.config import ImageQualityThresholds
 from vision_doctor.models import DatasetManifest, DatasetSummary, ImageRecord
 from vision_doctor.parser import parse_yolo_dataset
 
@@ -83,6 +85,14 @@ def test_quality_cases_include_measurements_and_thresholds(tmp_path: Path) -> No
     assert by_path["images/damaged.png"] == {IMAGE_UNREADABLE}
     for issue in issues:
         assert issue.metrics
+        assert {
+            "measured_value",
+            "fixed_threshold",
+            "adaptive_threshold",
+            "effective_threshold",
+            "threshold_source",
+            "sample_count",
+        } <= set(issue.metrics)
         if issue.code != IMAGE_UNREADABLE:
             assert "grayscale_mean" in issue.metrics
             assert "laplacian_variance" in issue.metrics
@@ -105,3 +115,52 @@ def test_unreadable_image_does_not_stop_later_images(tmp_path: Path) -> None:
     assert {issue.code for issue in issues} >= {IMAGE_UNREADABLE, IMAGE_BRIGHT}
     assert manifest.unreadable_image_paths == ["train/images/first.png"]
     assert manifest.summary.image_count == 2
+
+
+def test_adaptive_mode_uses_split_statistics_and_ignores_damaged_images(
+    tmp_path: Path,
+) -> None:
+    records: list[ImageRecord] = []
+    for index, brightness in enumerate([*range(100, 112), 20]):
+        relative = f"train/images/{index:02d}.png"
+        _save(tmp_path / relative, np.full((400, 400, 3), brightness))
+        records.append(_record(relative, 400, 400))
+    damaged_path = "train/images/damaged.png"
+    (tmp_path / damaged_path).write_bytes(b"damaged")
+    records.append(_record(damaged_path, 1, 1))
+    config = ImageQualityThresholds(mode="adaptive", adaptive_min_samples=12)
+
+    issues = check_image_quality(_manifest(records), tmp_path, config=config)
+    dark_issue = next(
+        issue
+        for issue in issues
+        if issue.code == IMAGE_DARK and issue.relative_path.endswith("12.png")
+    )
+    unreadable = next(issue for issue in issues if issue.code == IMAGE_UNREADABLE)
+
+    assert dark_issue.metrics["threshold_source"] == "adaptive_mad"
+    assert dark_issue.metrics["sample_count"] == 13
+    assert dark_issue.metrics["fixed_threshold"] == 45.0
+    assert dark_issue.metrics["adaptive_threshold"] == 80.0
+    assert dark_issue.metrics["effective_threshold"] == 80.0
+    assert dark_issue.metrics["measured_value"] == pytest.approx(20.0)
+    assert unreadable.metrics["sample_count"] == 13
+
+
+def test_adaptive_mode_falls_back_to_fixed_for_small_split(tmp_path: Path) -> None:
+    records: list[ImageRecord] = []
+    for index, brightness in enumerate((20, 128)):
+        relative = f"val/images/{index}.png"
+        _save(tmp_path / relative, np.full((400, 400, 3), brightness))
+        records.append(_record(relative, 400, 400))
+    config = ImageQualityThresholds(mode="adaptive", adaptive_min_samples=5)
+
+    issues = check_image_quality(_manifest(records), tmp_path, config=config)
+    dark_issue = next(issue for issue in issues if issue.code == IMAGE_DARK)
+
+    assert dark_issue.metrics["threshold_source"] == (
+        "fixed_fallback_insufficient_samples"
+    )
+    assert dark_issue.metrics["adaptive_threshold"] is None
+    assert dark_issue.metrics["effective_threshold"] == 45.0
+    assert dark_issue.metrics["sample_count"] == 2

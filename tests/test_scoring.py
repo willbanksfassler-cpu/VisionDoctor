@@ -11,7 +11,11 @@ from vision_doctor.models import (
     Issue,
     Severity,
 )
-from vision_doctor.scoring import PENALTY_CAPS, calculate_health_score
+from vision_doctor.scoring import (
+    LEGACY_V1_PROFILE,
+    PENALTY_CAPS,
+    calculate_health_score,
+)
 
 
 def _manifest(*, class_count: int = 1, annotations: int = 0) -> DatasetManifest:
@@ -81,6 +85,13 @@ def test_clean_single_class_scores_100_and_empty_label_does_not_deduct() -> None
     assert score.penalties == {category: 0.0 for category in PENALTY_CAPS}
     assert score.raw_ratios["distribution"] == 0.0
     assert any("LABEL_EMPTY" in line for line in score.explanation)
+    assert score.profile_name == "legacy-v1"
+    assert score.methodology_version == "1.0.0"
+    assert score.penalty_caps == PENALTY_CAPS
+    assert score.scoring_rules["label_empty_penalty"] is False
+    assert score.scoring_rules["distribution_imbalance_normalizer"] == 9.0
+    assert score.calibration_metadata["label_empty_penalty"] is False
+    assert score.limitations
 
 
 def test_each_category_is_capped_and_total_never_falls_below_zero() -> None:
@@ -118,3 +129,20 @@ def test_each_category_is_capped_and_total_never_falls_below_zero() -> None:
     assert all(0.0 <= ratio <= 1.0 for ratio in first.raw_ratios.values())
     assert first == second
     assert len(first.breakdown) == 5
+
+
+def test_explicit_legacy_profile_reproduces_default_numeric_behavior() -> None:
+    manifest = _manifest(class_count=2, annotations=3)
+    issues = [_issue("LABEL_MISSING"), _issue("BBOX_TINY")]
+    distribution = _distribution(classes=2)
+
+    default_score = calculate_health_score(manifest, issues, [], distribution)
+    explicit_score = calculate_health_score(
+        manifest,
+        issues,
+        [],
+        distribution,
+        profile=LEGACY_V1_PROFILE,
+    )
+
+    assert explicit_score == default_score

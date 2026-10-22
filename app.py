@@ -18,12 +18,16 @@ def main() -> None:
 
     import streamlit as st
 
-    st.set_page_config(page_title="VisionDoctor", page_icon="🩺", layout="wide")
+    st.set_page_config(
+        page_title="VisionDoctor 数据集体检",
+        page_icon="🩺",
+        layout="wide",
+    )
     try:
         render_app()
     except Exception:  # noqa: BLE001 - final UI trust boundary
         st.error(
-            "VisionDoctor could not render this session. Clear the upload and try again."
+            "页面暂时无法正常显示，请清除当前上传文件后重试。"
         )
 
 

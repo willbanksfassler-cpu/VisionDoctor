@@ -23,11 +23,13 @@ EXPECTED_DEMO_CODES = {
     "CLASS_ID_INVALID",
     "BBOX_OUT_OF_RANGE",
     "BBOX_TINY",
+    "BBOX_AREA_OUTLIER",
     "IMAGE_UNREADABLE",
     "IMAGE_BLURRY",
     "IMAGE_DARK",
     "IMAGE_BRIGHT",
     "IMAGE_LOW_RESOLUTION",
+    "SPLIT_LEAKAGE_NEAR",
 }
 
 
@@ -50,10 +52,26 @@ def test_demo_is_reproducible_and_pipeline_returns_valid_report(tmp_path: Path) 
     assert report.health_score == restored.health_score
     assert report.threshold_snapshot == restored.threshold_snapshot
     assert report.threshold_snapshot["image_quality"]["blur_variance_threshold"] == 80.0
+    assert report.threshold_snapshot["image_quality"]["mode"] == "fixed"
     assert (
         report.threshold_snapshot["duplicate_detection"]
         ["near_duplicate_hamming_threshold"]
         == 4
+    )
+    assert report.threshold_snapshot["bbox_outliers"]["enabled"] is True
+    assert report.threshold_snapshot["scoring"]["profile_name"] == "legacy-v1"
+    assert report.threshold_snapshot["knowledge"]["profile"] == "generic"
+    assert report.knowledge_guidance is not None
+    assert report.knowledge_guidance.profile_id.value == "generic"
+    assert report.knowledge_guidance.pack_schema_version == "1.0.0"
+    assert report.knowledge_guidance.used_guidance_entry_ids
+    assert report.health_score.profile_name == "legacy-v1"
+    assert report.health_score.penalty_caps
+    assert report.repair_simulation is not None
+    assert report.repair_simulation.impacts
+    assert all(
+        impact.source_data_modified is False
+        for impact in report.repair_simulation.impacts
     )
     assert report.diagnosis is None
 
@@ -86,6 +104,8 @@ def test_pipeline_can_attach_no_key_fallback_diagnosis(tmp_path: Path) -> None:
 
     assert report.diagnosis is not None
     assert report.diagnosis.generated_by == "deterministic"
+    assert report.diagnosis_mode == "deterministic_fallback"
+    assert report.diagnosis_failure_stage == "llm_disabled"
 
 
 def test_pipeline_accepts_train_only_wrapper_with_root_extras(tmp_path: Path) -> None:
