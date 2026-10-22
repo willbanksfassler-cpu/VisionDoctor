@@ -141,7 +141,7 @@ macOS/Linux 激活命令为 `source .venv/bin/activate`，其余命令相同。
 python -m streamlit run app.py --server.headless true
 ```
 
-打开终端给出的本地地址。应用包含“上传数据、健康看板、问题浏览器、AI 诊断与报告”四个标签页。上传内容只在系统临时目录中处理；重新上传会清理上一份会话数据。
+打开终端给出的本地地址。应用包含“上传体检、健康看板、问题定位、医生与报告”四个编号标签页。上传内容只在系统临时目录中处理；重新上传会清理上一份会话数据。
 
 Demo 界面使用简体中文。样式由无第三方 npm 依赖的 Node.js 脚本确定性生成，Streamlit 运行时只读取仓库内的静态 CSS，不需要 Node.js：
 

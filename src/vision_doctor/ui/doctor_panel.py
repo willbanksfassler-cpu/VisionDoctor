@@ -45,7 +45,8 @@ def _render_repair_simulation(report: AuditReport) -> None:
 def render_doctor_panel(report: AuditReport) -> None:
     """Render assessment, risk, findings, actions, and caveats."""
 
-    st.subheader("AI 数据集医生")
+    st.markdown("### Dataset Doctor")
+    st.caption("基于结构化证据生成诊断结论、优先事项与修复路径")
     diagnosis = report.diagnosis
     if diagnosis is None:
         st.info("本次报告没有运行 Dataset Doctor。")

@@ -40,10 +40,10 @@ def _demo_bytes(tmp_path: Path) -> bytes:
 def test_streamlit_entry_imports_with_exactly_four_tab_contract() -> None:
     assert callable(app.main)
     assert list(TAB_LABELS) == [
-        "上传数据",
-        "健康看板",
-        "问题浏览器",
-        "AI 诊断与报告",
+        "01 · 上传体检",
+        "02 · 健康看板",
+        "03 · 问题定位",
+        "04 · 医生与报告",
     ]
     assert split_for_path("train/images/a.jpg") == "train"
     assert split_for_path("val/images/a.jpg") == "val"
@@ -142,6 +142,9 @@ def test_static_theme_is_present_and_mobile_aware() -> None:
 
     assert "[data-testid=\"stMetric\"]" in css
     assert "[data-baseweb=\"tab-list\"]" in css
+    assert ".vd-hero" in css
+    assert ".stDownloadButton" in css
+    assert "--vd-primary" in css
     assert "@media (max-width: 720px)" in css
     assert "<script" not in css.lower()
 

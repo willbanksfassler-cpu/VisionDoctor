@@ -20,18 +20,19 @@ def build_report_downloads(report: AuditReport) -> tuple[bytes, bytes]:
 def render_report_panel(report: AuditReport) -> None:
     """Render JSON and HTML report downloads."""
 
-    st.subheader("下载报告")
+    st.markdown("### 导出审计结果")
+    st.caption("下载可复查的机器可读 JSON，或便于分享的自包含 HTML 报告")
     json_payload, html_payload = build_report_downloads(report)
     columns = st.columns(2)
     columns[0].download_button(
-        "下载 JSON 报告",
+        "导出 JSON 数据报告",
         data=json_payload,
         file_name="visiondoctor-audit.json",
         mime="application/json",
         use_container_width=True,
     )
     columns[1].download_button(
-        "下载 HTML 报告",
+        "导出 HTML 可视报告",
         data=html_payload,
         file_name="visiondoctor-audit.html",
         mime="text/html",

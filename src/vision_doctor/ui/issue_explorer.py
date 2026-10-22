@@ -12,10 +12,10 @@ from vision_doctor.utils.images import render_archive_preview
 
 _KNOWN_SPLITS = {"train", "val", "valid", "validation", "test"}
 _SEVERITY_LABELS = {
-    "critical": "严重",
-    "error": "错误",
-    "warning": "警告",
-    "info": "提示",
+    "critical": "严重风险",
+    "error": "明确错误",
+    "warning": "待关注",
+    "info": "信息提示",
 }
 
 
@@ -185,7 +185,8 @@ def render_issue_explorer(
 ) -> None:
     """Render filters, paginated issues, image evidence, and duplicate groups."""
 
-    st.subheader("问题浏览器")
+    st.markdown("### 问题定位")
+    st.caption("按问题类型、严重程度、数据划分和类别筛选可复核证据")
     filter_columns = st.columns(4)
     code_options = sorted({issue.code for issue in report.issues})
     severity_options = ["critical", "error", "warning", "info"]

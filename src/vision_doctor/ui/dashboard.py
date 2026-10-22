@@ -15,7 +15,31 @@ from vision_doctor.ui.state import current_report, initialize_state
 from vision_doctor.ui.theme import apply_theme
 from vision_doctor.ui.upload import render_upload
 
-TAB_LABELS = ("上传数据", "健康看板", "问题浏览器", "AI 诊断与报告")
+TAB_LABELS = (
+    "01 · 上传体检",
+    "02 · 健康看板",
+    "03 · 问题定位",
+    "04 · 医生与报告",
+)
+
+_HERO_MARKUP = """
+<section class="vd-hero" aria-label="VisionDoctor 项目介绍">
+  <div class="vd-hero__content">
+    <div class="vd-eyebrow"><span></span> YOLO DATASET HEALTH AGENT</div>
+    <h1>训练开始前，先让数据集<br><em>做一次完整体检</em></h1>
+    <p>从安全解析、异常检测到可解释评分与修复决策，一次上传即可获得完整证据链。</p>
+    <div class="vd-hero__tags" aria-label="核心能力">
+      <span>安全解压</span><span>质量检测</span><span>重复与泄漏</span>
+      <span>Health Score</span><span>AI / Fallback</span>
+    </div>
+  </div>
+  <div class="vd-hero__summary" aria-hidden="true">
+    <span class="vd-hero__index">01 — 04</span>
+    <strong>检测 · 评分 · 决策</strong>
+    <small>结构化证据贯穿全流程</small>
+  </div>
+</section>
+"""
 
 
 def render_dashboard(report: AuditReport) -> None:
@@ -100,8 +124,7 @@ def render_app() -> None:
     initialize_state(st.session_state)
     settings = Settings()
     apply_theme()
-    st.title("VisionDoctor")
-    st.caption("AI 视觉数据集体检与修复决策助手")
+    st.markdown(_HERO_MARKUP, unsafe_allow_html=True)
     upload_tab, dashboard_tab, issues_tab, doctor_tab = st.tabs(TAB_LABELS)
     with upload_tab:
         render_upload(settings)

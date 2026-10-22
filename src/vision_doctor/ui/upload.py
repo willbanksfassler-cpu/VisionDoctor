@@ -130,7 +130,8 @@ def safe_error_message(error: Exception) -> str:
 def render_upload(settings: Settings) -> None:
     """Render upload guidance, threshold controls, and the analyze action."""
 
-    st.subheader("上传 YOLO Detection 数据集")
+    st.markdown("### 上传数据集")
+    st.caption("第一步 · 选择应用场景并上传 YOLO Detection ZIP")
     st.markdown(
         "必需结构：`data.yaml`、`train/images` 和 `train/labels`。"
         "`val/images` + `val/labels`、`test/images` + `test/labels` 可选。"
@@ -232,7 +233,7 @@ def render_upload(settings: Settings) -> None:
         )
 
     if st.button(
-        "开始数据集体检",
+        "开始智能体检  →",
         type="primary",
         disabled=uploaded is None or upload_too_large,
     ):
@@ -255,6 +256,6 @@ def render_upload(settings: Settings) -> None:
                     settings=active,
                 )
             store_analysis(st.session_state, report, workspace)
-            st.success("数据集体检完成，请在其他标签页查看结果。")
+            st.success("体检完成。请前往“健康看板”查看评分与风险概览。")
         except Exception as error:  # noqa: BLE001 - UI trust boundary
             st.error(safe_error_message(error))
